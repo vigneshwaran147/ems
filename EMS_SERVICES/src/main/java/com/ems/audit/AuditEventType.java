@@ -1,0 +1,15 @@
+package com.ems.audit;
+
+public enum AuditEventType {
+    REGISTRATION,
+    LOGIN_SUCCESS,
+    LOGIN_FAILURE,
+    LOGOUT,
+    PASSWORD_RESET,
+    PAYMENT,
+    EXAM_START,
+    EXAM_END,
+    EXAM_INVALIDATED,
+    CERTIFICATE_DOWNLOAD,
+    ADMIN_ACTION
+}

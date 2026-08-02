@@ -1,0 +1,6 @@
+EMS_UI/node_modules/
+EMS_UI/dist/
+EMS_UI/.vscode/
+EMS_SERVICES/target/
+EMS_SERVICES/.vscode/
+EMS_SERVICES/.github/

@@ -1,0 +1,47 @@
+# ems_backend/docker-compose.yml
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ems-postgres
+    environment:
+      POSTGRES_DB: ems_db
+      POSTGRES_USER: ems_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ems_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ems_user -d ems_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ems-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ems-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ems_db
+      SPRING_DATASOURCE_USERNAME: ems_user
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ems_password}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in environment}
+      JWT_ISSUER: ems-backend
+      DB_POOL_MAX_SIZE: 30
+      DB_POOL_MIN_IDLE: 10
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

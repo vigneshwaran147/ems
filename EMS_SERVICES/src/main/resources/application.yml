@@ -1,0 +1,115 @@
+# ems_backend/src/main/resources/application.yml
+spring:
+  application:
+    name: ems-backend
+  profiles:
+    active: dev
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+  datasource:
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:300000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:30000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-migration-naming: true
+  cache:
+    type: caffeine
+
+server:
+  port: 8080
+  shutdown: graceful
+  forward-headers-strategy: framework
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
+  tomcat:
+    threads:
+      max: ${SERVER_TOMCAT_THREADS_MAX:200}
+      min-spare: ${SERVER_TOMCAT_THREADS_MIN_SPARE:20}
+    max-connections: ${SERVER_TOMCAT_MAX_CONNECTIONS:8192}
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:200}
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:change-this-secret-before-production-change-this-secret-before-production}
+    issuer: ${JWT_ISSUER:ems-api}
+    access-token-expiration-minutes: ${JWT_ACCESS_EXPIRATION_MINUTES:30}
+    refresh-token-expiration-minutes: ${JWT_REFRESH_EXPIRATION_MINUTES:10080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers,threaddump,heapdump
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      sla:
+        http.server.requests: 100ms,250ms,500ms,1s,2s
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    com.ems: INFO
+
+info:
+  app:
+    name: EMS Backend
+    description: Examination Management System API
+    version: 0.0.1-SNAPSHOT
+
+app:
+  data:
+    mode: ${APP_DATA_MODE:sql}
+  storage:
+    profile-photo:
+      directory: ${PROFILE_PHOTO_STORAGE_DIR:storage/profile-photos}
+      max-size-bytes: ${PROFILE_PHOTO_MAX_SIZE_BYTES:5242880}
+      max-width: ${PROFILE_PHOTO_MAX_WIDTH:4096}
+      max-height: ${PROFILE_PHOTO_MAX_HEIGHT:4096}

@@ -1,0 +1,4 @@
+# ems_backend/src/main/resources/application-sql.yml
+app:
+  data:
+    mode: sql
