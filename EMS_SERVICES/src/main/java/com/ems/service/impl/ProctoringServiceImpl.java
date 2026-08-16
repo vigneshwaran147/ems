@@ -17,17 +17,14 @@ import com.ems.dto.response.ProctoringSessionResponse;
 import com.ems.dto.response.VideoRecordingResponse;
 import com.ems.dto.response.ViolationResponse;
 import com.ems.dto.response.ViolationSummaryResponse;
-import com.ems.entity.CertificationApplication;
 import com.ems.entity.ExamSession;
 import com.ems.entity.VideoRecording;
 import com.ems.entity.Violation;
-import com.ems.enums.CertificationApplicationStatus;
 import com.ems.enums.ExamStatus;
 import com.ems.enums.ProctoringAction;
 import com.ems.enums.ViolationType;
 import com.ems.exception.BusinessException;
 import com.ems.exception.ResourceNotFoundException;
-import com.ems.repository.CertificationApplicationRepository;
 import com.ems.repository.ExamSessionRepository;
 import com.ems.repository.VideoRecordingRepository;
 import com.ems.repository.ViolationRepository;
@@ -43,6 +40,11 @@ import lombok.extern.slf4j.Slf4j;
 @Transactional
 public class ProctoringServiceImpl implements ProctoringService {
 
+	/**
+	 * Types accepted by the legacy reporting endpoint. Kept aligned with the AI
+	 * pipeline's catalogue so a detection raised by the worker can also be replayed
+	 * through {@code /api/proctoring/sessions/{id}/violations}.
+	 */
 	private static final Set<ViolationType> TRACKED_VIOLATIONS = EnumSet.of(
 			ViolationType.TAB_SWITCH,
 			ViolationType.WINDOW_MINIMIZED,
@@ -50,12 +52,23 @@ public class ProctoringServiceImpl implements ProctoringService {
 			ViolationType.WEBCAM_OFF,
 			ViolationType.BROWSER_MONITORING,
 			ViolationType.SESSION_TAMPERING,
-			ViolationType.MULTIPLE_LOGIN);
+			ViolationType.MULTIPLE_LOGIN,
+			ViolationType.PHONE_DETECTED,
+			ViolationType.MULTIPLE_FACES,
+			ViolationType.FACE_NOT_VISIBLE,
+			ViolationType.FACE_TURNED_AWAY,
+			ViolationType.EYES_OFF_SCREEN,
+			ViolationType.BACKGROUND_NOISE,
+			ViolationType.FULLSCREEN_EXIT,
+			ViolationType.SCREEN_SHARE_STOPPED,
+			ViolationType.SCREEN_SHARE_DENIED,
+			ViolationType.NETWORK_LOSS,
+			ViolationType.SCREEN_RECORDING_SUSPECTED);
 
 	private final ExamSessionRepository examSessionRepository;
 	private final VideoRecordingRepository videoRecordingRepository;
 	private final ViolationRepository violationRepository;
-	private final CertificationApplicationRepository certificationApplicationRepository;
+	private final ExamInvalidationHandler examInvalidationHandler;
 
 	@Override
 	public VideoRecordingResponse recordVideoMetadata(String email, Long sessionId, RecordingMetadataRequest request) {
@@ -115,38 +128,7 @@ public class ProctoringServiceImpl implements ProctoringService {
 	}
 
 	private void markLatestApplicationAsFailedForRestart(ExamSession session) {
-		CertificationApplication application = certificationApplicationRepository
-				.findTopByUserAndExamAndApplicationStatusOrderByAppliedOnDescIdDesc(
-						session.getUser(),
-						session.getExam(),
-						CertificationApplicationStatus.IN_PROGRESS)
-				.or(() -> certificationApplicationRepository
-						.findTopByUserAndExamAndApplicationStatusInOrderByAppliedOnDescIdDesc(
-								session.getUser(),
-								session.getExam(),
-								Set.of(CertificationApplicationStatus.APPLIED, CertificationApplicationStatus.ELIGIBLE)))
-				.or(() -> certificationApplicationRepository
-						.findTopByUserAndExamOrderByAppliedOnDescIdDesc(session.getUser(), session.getExam()))
-				.orElse(null);
-
-		if (application == null) {
-			log.warn("No certification application found to mark as failed after exam invalidation: sessionId={} examCode={}",
-					session.getId(), session.getExam().getExamCode());
-			return;
-		}
-
-		if (application.getApplicationStatus() == CertificationApplicationStatus.APPLIED
-				|| application.getApplicationStatus() == CertificationApplicationStatus.ELIGIBLE
-				|| application.getApplicationStatus() == CertificationApplicationStatus.IN_PROGRESS) {
-			application.setApplicationStatus(CertificationApplicationStatus.FAILED);
-			String restartNote = "Exam invalidated after 3 proctoring violations. Re-apply and complete payment to restart from question 1.";
-			if (application.getRemarks() == null || application.getRemarks().isBlank()) {
-				application.setRemarks(restartNote);
-			} else if (!application.getRemarks().contains(restartNote)) {
-				application.setRemarks(application.getRemarks() + " | " + restartNote);
-			}
-			certificationApplicationRepository.save(application);
-		}
+		examInvalidationHandler.markLatestApplicationAsFailedForRestart(session);
 	}
 
 	@Override
@@ -286,6 +268,15 @@ public class ProctoringServiceImpl implements ProctoringService {
 				session.getId(),
 				totalViolations,
 				warningCount,
+				/*
+				 * The session's own counter, not a count of violation rows. Rows
+				 * include the detections that cost nothing — the forgiven sounds
+				 * and the review-only types — so counting them would hand the
+				 * client a number higher than the one termination is judged on,
+				 * which is the exact mistake that used to end exams early.
+				 */
+				session.getViolationCount(),
+				ViolationStrikeRecorder.STRIKE_LIMIT,
 				terminated,
 				session.getSessionStatus(),
 				lastType,

@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ import com.ems.enums.CertificationApplicationStatus;
 import com.ems.enums.CertificationStatus;
 import com.ems.enums.ExamStatus;
 import com.ems.enums.ResultStatus;
+import com.ems.event.ExamPassedEvent;
 import com.ems.exception.BusinessException;
 import com.ems.exception.ResourceNotFoundException;
 import com.ems.repository.CertificationApplicationRepository;
@@ -64,6 +66,7 @@ public class ResultEvaluationServiceImpl implements ResultEvaluationService {
 	private final CertificationApplicationRepository certificationApplicationRepository;
 	private final CertificationRepository certificationRepository;
 	private final ObjectMapper objectMapper;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Override
 	@CacheEvict(cacheNames = { "reports", "dashboard" }, allEntries = true)
@@ -166,6 +169,11 @@ public class ResultEvaluationServiceImpl implements ResultEvaluationService {
 		if (resultStatus != ResultStatus.PASS) {
 			return;
 		}
+
+		// Clearing the exam is what earns the certificate, so the PDF for this
+		// level is rendered once the result commits rather than only when the
+		// candidate asks for it from the result screen.
+		eventPublisher.publishEvent(new ExamPassedEvent(session.getUser().getEmail(), session.getId()));
 
 		Long userId = session.getUser().getId();
 		var level = session.getExam().getCertificationLevel();

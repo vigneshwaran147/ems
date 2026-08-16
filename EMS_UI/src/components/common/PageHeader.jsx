@@ -2,31 +2,48 @@
 import { Box, Typography, Breadcrumbs, Link as MuiLink } from '@mui/material'
 import { Link } from 'react-router-dom'
 import PropTypes from 'prop-types'
+import { tokens, fonts } from '../../styles/tokens'
 
-/** Consistent page header with title, subtitle, optional breadcrumbs and actions. */
-const PageHeader = ({
-  title,
-  subtitle,
-  breadcrumbs = [],
-  action,
-  titleVariant = 'h4',
-  subtitleVariant = 'body1',
-  titleSx,
-  subtitleSx,
-  inlineSubtitle = true,
-}) => (
+/**
+ * The banner every screen opens with.
+ *
+ * One design, no per-page variants: the title bar is how a screen announces
+ * itself, so a page that sizes or tints its own would read as a different
+ * product. Pages vary only in what they put in `action`.
+ */
+const PageHeader = ({ title, subtitle, breadcrumbs = [], action }) => (
   <Box
     sx={{
-      mb: 3, display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'stretch',
-      justifyContent: 'space-between', border: '1px solid', borderColor: 'divider',
-      borderRadius: 3, px: { xs: 2, md: 3 }, py: { xs: 1.5, md: 2 },
-      background: 'linear-gradient(135deg, #ffffff 0%, #fafbff 100%)',
-      boxShadow: '0 4px 18px rgba(15, 23, 42, 0.05)',
+      position: 'relative',
+      mb: 2.25,
+      display: 'flex',
+      alignItems: { xs: 'flex-start', md: 'center' },
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: 3,
+      p: { xs: '22px', md: '24px 30px' },
+      borderRadius: '18px',
+      // Fades out to the right rather than filling: the banner should sit on the
+      // board, not stack another solid slab on top of it.
+      background:
+        'linear-gradient(100deg, rgba(11,44,34,.55) 0%, rgba(10,36,25,.30) 48%, rgba(6,26,19,.06) 100%)',
+      border: `1px solid ${tokens.line}`,
+      boxShadow: 'none',
+      overflow: 'hidden',
     }}
   >
     <Box sx={{ minWidth: 0 }}>
       {breadcrumbs.length > 0 && (
-        <Breadcrumbs sx={{ mb: 0.5 }}>
+        <Breadcrumbs
+          sx={{
+            mb: 0.75,
+            fontFamily: fonts.mono,
+            fontSize: 10.5,
+            letterSpacing: '1.2px',
+            textTransform: 'uppercase',
+            '& .MuiBreadcrumbs-separator': { color: tokens.muted },
+          }}
+        >
           {breadcrumbs.map((b) =>
             b.to ? (
               <MuiLink
@@ -34,53 +51,48 @@ const PageHeader = ({
                 component={Link}
                 to={b.to}
                 underline="hover"
-                color="inherit"
-                variant="body2"
+                sx={{ color: tokens.muted, fontSize: 10.5, '&:hover': { color: tokens.copperLt } }}
               >
                 {b.label}
               </MuiLink>
             ) : (
-              <Typography key={b.label} variant="body2" color="text.secondary">
+              <Typography key={b.label} sx={{ color: tokens.copper, fontSize: 10.5, fontFamily: fonts.mono }}>
                 {b.label}
               </Typography>
             )
           )}
         </Breadcrumbs>
       )}
+
       <Typography
-        variant={titleVariant}
-        fontWeight={800}
+        variant="h1"
         sx={{
-          lineHeight: 1.1,
-          letterSpacing: '-0.02em',
-          fontSize: { xs: '1.4rem', md: '1.8rem' },
-          ...titleSx,
+          fontSize: { xs: 24, md: 26 },
+          lineHeight: 1.05,
+          letterSpacing: '-.8px',
+          color: tokens.ink,
         }}
       >
         {title}
       </Typography>
+
       {subtitle && (
-        inlineSubtitle ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
-            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'primary.main', opacity: 0.7 }} />
-            <Typography variant={subtitleVariant} color="text.secondary" sx={{ fontWeight: 600, ...subtitleSx }}>
-              {subtitle}
-            </Typography>
-          </Box>
-        ) : (
-          <Typography variant={subtitleVariant} color="text.secondary" sx={{ mt: 0.5, ...subtitleSx }}>
-            {subtitle}
-          </Typography>
-        )
+        <Typography sx={{ mt: 0.75, fontSize: 14, fontWeight: 500, color: '#C9DBD1' }}>
+          {subtitle}
+        </Typography>
       )}
     </Box>
-    {action && <Box sx={{ display: 'flex', alignItems: 'center' }}>{action}</Box>}
+
+    {action && (
+      <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.25 }}>{action}</Box>
+    )}
   </Box>
 )
 
 PageHeader.propTypes = {
-  title: PropTypes.string.isRequired,
-  subtitle: PropTypes.string,
+  // A node rather than a string: some titles carry an inline highlight.
+  title: PropTypes.node.isRequired,
+  subtitle: PropTypes.node,
   breadcrumbs: PropTypes.arrayOf(
     PropTypes.shape({
       label: PropTypes.string.isRequired,
@@ -88,11 +100,6 @@ PageHeader.propTypes = {
     })
   ),
   action: PropTypes.node,
-  titleVariant: PropTypes.string,
-  subtitleVariant: PropTypes.string,
-  titleSx: PropTypes.object,
-  subtitleSx: PropTypes.object,
-  inlineSubtitle: PropTypes.bool,
 }
 
 export default PageHeader

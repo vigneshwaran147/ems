@@ -1,5 +1,5 @@
 // ems_frontend/src/components/layout/LayoutWrapper.jsx
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Box, AppBar, Toolbar, IconButton, Menu, MenuItem, Drawer, List,
   ListItemButton, ListItemIcon, ListItemText, Divider, Typography,
@@ -24,15 +24,22 @@ import EventNoteIcon from '@mui/icons-material/EventNoteRounded'
 import TableChartIcon from '@mui/icons-material/TableChartRounded'
 import PaidIcon from '@mui/icons-material/PaidRounded'
 import { logout } from '../../store/slices/authSlice'
+import { authAPI } from '../../api/authAPI'
+import { useIdleTimeout, clearIdleStamp } from '../../hooks/useIdleTimeout'
+import { useProfilePhoto } from '../../contexts/ProfilePhotoContext'
+import SessionTimeoutDialog from '../common/SessionTimeoutDialog'
+import PcbBackdrop from '../brand/PcbBackdrop'
+import { ChipLogo } from '../brand/BrandMark'
+import { tokens, fonts, gradients } from '../../styles/tokens'
 
 const DRAWER_WIDTH = 236
-const HEADER_TOOLBAR_HEIGHT = 44
+const HEADER_TOOLBAR_HEIGHT = 48
 
 const LayoutWrapper = ({ children }) => {
   const navigate = useNavigate()
   const location = useLocation()
   const dispatch = useDispatch()
-  const { user } = useSelector((state) => state.auth)
+  const { user, refreshToken } = useSelector((state) => state.auth)
   const { profile } = useSelector((state) => state.user)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState(null)
@@ -67,10 +74,43 @@ const LayoutWrapper = ({ children }) => {
     setMobileOpen(false)
   }
 
-  const handleLogout = () => {
-    dispatch(logout())
-    navigate('/login')
-  }
+  /**
+   * Ends the session on both sides: revokes the refresh token server-side, then
+   * clears local state.
+   *
+   * The revocation is fire-and-forget. `/auth/logout` is permitAll and reads
+   * only the token in its body, so it does not race the teardown below — and
+   * awaiting it would leave the user looking at a live session for up to the
+   * request timeout whenever the backend is slow or unreachable. A signed-out
+   * user must be signed out locally whether or not the server was listening.
+   */
+  const endSession = useCallback(
+    (notice) => {
+      if (refreshToken) {
+        authAPI.logout(refreshToken).catch(() => {
+          /* best effort: the token still expires on its own schedule */
+        })
+      }
+      clearIdleStamp()
+      dispatch(logout())
+      navigate('/', { replace: true, state: notice ? { authNotice: notice } : undefined })
+    },
+    [dispatch, navigate, refreshToken]
+  )
+
+  const handleLogout = () => endSession()
+
+  /*
+   * Idle expiry is armed here, in the app shell, which means the live exam at
+   * `/exam/:applicationId` is exempt: that route renders outside this wrapper.
+   * That exemption is the point rather than an oversight — a candidate reading
+   * a long question produces no input for minutes at a stretch, and ending the
+   * session under them would discard the attempt. The exam has its own timer
+   * and its own proctoring; this clock covers the portal around it.
+   */
+  const { warningMsLeft, stayActive } = useIdleTimeout({
+    onTimeout: () => endSession('You were signed out after 10 minutes of inactivity.')
+  })
 
   const isActive = (path) =>
     location.pathname === path ||
@@ -79,7 +119,9 @@ const LayoutWrapper = ({ children }) => {
   const displayFirstName = profile?.firstName || user?.firstName || ''
   const displayLastName = profile?.lastName || user?.lastName || ''
   const displayEmail = profile?.email || user?.email || ''
-  const displayProfilePhoto = profile?.profilePhotoUrl || null
+  // Not `profile.profilePhotoUrl`: that is an authenticated endpoint, and an
+  // <img> pointed straight at it 401s. The provider holds the fetched bytes.
+  const { photoUrl: displayProfilePhoto } = useProfilePhoto()
   const initials = (`${displayFirstName?.[0] || ''}${displayLastName?.[0] || ''}` || 'U').toUpperCase()
 
   useEffect(() => {
@@ -106,61 +148,121 @@ const LayoutWrapper = ({ children }) => {
   }, [location, navigate])
 
   const drawerContent = (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Box
-          sx={{
-            width: 36,
-            height: 36,
-            borderRadius: 1.5,
-            display: 'grid',
-            placeItems: 'center',
-            background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-            color: '#fff'
-          }}
-        >
-          <SchoolIcon fontSize="small" />
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      {/* copper rail running down the board edge */}
+      <Box
+        aria-hidden="true"
+        sx={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: '1px',
+          background: `linear-gradient(180deg, transparent, ${tokens.copper}, transparent)`,
+          opacity: 0.5,
+        }}
+      />
+
+      <Box
+        onClick={() => handleNavigate(isAdmin ? '/admin/dashboard' : '/dashboard')}
+        sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.25, cursor: 'pointer' }}
+      >
+        <ChipLogo size={26} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 800, letterSpacing: '1.6px', lineHeight: 1.1 }}>
+            CERTIFIED EMS
+          </Typography>
+          <Typography
+            sx={{ fontFamily: fonts.mono, fontSize: 8.5, letterSpacing: '1.6px', color: tokens.copper }}
+          >
+            ENGINEER BOARD
+          </Typography>
         </Box>
-        <Typography variant="body2" fontWeight={800} lineHeight={1}>
-          EMS
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Platform
-        </Typography>
       </Box>
       <Divider />
 
-      <List sx={{ px: 0, py: 1 }}>
-        {primaryMenu.map((item) => (
-          <ListItemButton
-            key={item.path}
-            selected={isActive(item.path)}
-            onClick={() => handleNavigate(item.path)}
-            sx={{ my: 0.3 }}
-          >
-            <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.label} primaryTypographyProps={{ fontWeight: 600 }} />
-          </ListItemButton>
-        ))}
-      </List>
+      <ListSubheader
+        sx={{
+          bgcolor: 'transparent',
+          fontFamily: fonts.mono,
+          fontSize: 9.5,
+          fontWeight: 500,
+          letterSpacing: '2px',
+          color: tokens.muted,
+          lineHeight: '34px',
+          px: 2,
+        }}
+      >
+        {isAdmin ? 'ADMINISTRATION' : 'CERTIFICATION'}
+      </ListSubheader>
 
-      {isAdmin && (
-        <ListSubheader sx={{ bgcolor: 'transparent', fontWeight: 700, color: 'text.secondary', lineHeight: '32px', px: 2 }}>
-          Administration
-        </ListSubheader>
-      )}
+      <List sx={{ px: 0, py: 0.5 }}>
+        {primaryMenu.map((item) => {
+          const active = isActive(item.path)
+          return (
+            <ListItemButton
+              key={item.path}
+              selected={active}
+              onClick={() => handleNavigate(item.path)}
+              sx={{
+                my: 0.3,
+                position: 'relative',
+                '&::before': active
+                  ? {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 8,
+                      bottom: 8,
+                      width: 3,
+                      borderRadius: '0 3px 3px 0',
+                      background: tokens.copperLt,
+                      boxShadow: `0 0 10px ${tokens.copper}`,
+                    }
+                  : undefined,
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 38 }}>{item.icon}</ListItemIcon>
+              <ListItemText
+                primary={item.label}
+                primaryTypographyProps={{ fontWeight: 600, fontSize: '0.875rem' }}
+              />
+            </ListItemButton>
+          )
+        })}
+      </List>
 
       <Box sx={{ flexGrow: 1 }} />
       <Divider />
       <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.25 }}>
-        <Avatar src={displayProfilePhoto || undefined} sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>
+        <Avatar
+          variant="rounded"
+          src={displayProfilePhoto || undefined}
+          sx={{
+            flex: 'none',
+            width: 34,
+            height: 34,
+            borderRadius: '10px',
+            fontFamily: fonts.mono,
+            fontSize: 12,
+            fontWeight: 500,
+            color: tokens.copperLt,
+            background: 'rgba(192,138,46,.16)',
+            border: '1px solid rgba(192,138,46,.4)',
+          }}
+        >
           {initials}
         </Avatar>
         <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" fontWeight={700} noWrap>
+          <Typography variant="caption" fontWeight={700} noWrap sx={{ display: 'block' }}>
             {displayFirstName} {displayLastName}
           </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', fontSize: '0.7rem' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap
+            sx={{ display: 'block', fontSize: '0.68rem' }}
+          >
             {displayEmail}
           </Typography>
         </Box>
@@ -169,19 +271,22 @@ const LayoutWrapper = ({ children }) => {
   )
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <PcbBackdrop intensity="subtle" />
+
       <AppBar
         position="fixed"
         elevation={0}
-        color="inherit"
         sx={{
+          zIndex: (t) => t.zIndex.drawer + 1,
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           ml: { md: `${DRAWER_WIDTH}px` },
           minHeight: `${HEADER_TOOLBAR_HEIGHT}px`,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          bgcolor: 'rgba(255,255,255,0.85)',
-          backdropFilter: 'blur(8px)'
+          background: 'rgba(6,26,19,.78)',
+          backgroundImage: 'none',
+          backdropFilter: 'blur(10px)',
+          borderRadius: 0,
+          borderBottom: `1px solid ${tokens.line}`,
         }}
       >
         <Toolbar
@@ -190,17 +295,50 @@ const LayoutWrapper = ({ children }) => {
             minHeight: { xs: `${HEADER_TOOLBAR_HEIGHT}px`, sm: `${HEADER_TOOLBAR_HEIGHT}px` },
             height: `${HEADER_TOOLBAR_HEIGHT}px`,
             py: 0,
-            px: 1.25
+            px: 1.5,
           }}
         >
           <IconButton
-            color="inherit"
             edge="start"
             onClick={() => setMobileOpen(true)}
             sx={{ mr: 1, display: { md: 'none' } }}
           >
             <MenuIcon />
           </IconButton>
+
+          {/* Session lamp — a copper pill, matching the status pills on the board. */}
+          <Box
+            sx={{
+              display: { xs: 'none', sm: 'inline-flex' },
+              alignItems: 'center',
+              gap: 1.125,
+              py: '6px',
+              pl: '11px',
+              pr: 2,
+              borderRadius: '999px',
+              fontFamily: fonts.mono,
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '1.2px',
+              color: '#DCC79A',
+              background: 'rgba(192,138,46,.12)',
+              border: '1px solid rgba(192,138,46,.36)',
+            }}
+          >
+            <Box
+              component="span"
+              sx={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: tokens.greenGlow,
+                boxShadow: `0 0 9px ${tokens.greenGlow}`,
+                '@keyframes railBlink': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } },
+                animation: 'railBlink 2.4s ease-in-out infinite',
+              }}
+            />
+            SESSION LIVE
+          </Box>
 
           <Box sx={{ flexGrow: 1 }} />
 
@@ -211,19 +349,31 @@ const LayoutWrapper = ({ children }) => {
               variant="outlined"
               icon={<AdminPanelSettingsIcon />}
               label="Admin"
-              sx={{ mr: 2, display: { xs: 'none', sm: 'flex' } }}
+              sx={{
+                mr: 2,
+                display: { xs: 'none', sm: 'flex' },
+                borderColor: 'rgba(192,138,46,.4)',
+                color: tokens.copperLt,
+              }}
             />
           )}
 
           <Tooltip title="Account">
-            <IconButton
-              onClick={(e) => setAnchorEl(e.currentTarget)}
-              size="small"
-              sx={{ p: 0.25 }}
-            >
+            <IconButton onClick={(e) => setAnchorEl(e.currentTarget)} size="small" sx={{ p: 0.25 }}>
               <Avatar
+                variant="rounded"
                 src={displayProfilePhoto || undefined}
-                sx={{ bgcolor: 'primary.main', width: 30, height: 30, fontSize: '0.75rem' }}
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '11px',
+                  fontFamily: fonts.mono,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: tokens.copperLt,
+                  background: 'rgba(192,138,46,.14)',
+                  border: '1px solid rgba(192,138,46,.4)',
+                }}
               >
                 {initials}
               </Avatar>
@@ -258,7 +408,18 @@ const LayoutWrapper = ({ children }) => {
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }}>
+      <Box
+        component="nav"
+        // `position` is what makes the z-index bite: without it the rail sits in
+        // the root stacking context and the fixed backdrop draws its traces
+        // straight across the navigation.
+        sx={{
+          position: 'relative',
+          zIndex: (t) => t.zIndex.drawer,
+          width: { md: DRAWER_WIDTH },
+          flexShrink: { md: 0 },
+        }}
+      >
         <Drawer
           variant="temporary"
           open={mobileOpen}
@@ -266,7 +427,17 @@ const LayoutWrapper = ({ children }) => {
           ModalProps={{ keepMounted: true }}
           sx={{
             display: { xs: 'block', md: 'none' },
-            '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' }
+            // Restated here rather than relying on the theme's MuiDrawer slot
+            // winning over the blanket MuiPaper override.
+            '& .MuiDrawer-paper': {
+              width: DRAWER_WIDTH,
+              boxSizing: 'border-box',
+              borderRadius: 0,
+              borderRight: `1px solid ${tokens.line}`,
+              // Shorthand last — a `backgroundImage` after it would wipe the
+              // gradient and let the board's traces show through the rail.
+              background: gradients.rail,
+            }
           }}
         >
           {drawerContent}
@@ -276,11 +447,16 @@ const LayoutWrapper = ({ children }) => {
           open
           sx={{
             display: { xs: 'none', md: 'block' },
+            // Restated here rather than relying on the theme's MuiDrawer slot
+            // winning over the blanket MuiPaper override.
             '& .MuiDrawer-paper': {
               width: DRAWER_WIDTH,
               boxSizing: 'border-box',
-              borderRight: '1px solid',
-              borderColor: 'divider'
+              borderRadius: 0,
+              borderRight: `1px solid ${tokens.line}`,
+              // Shorthand last — a `backgroundImage` after it would wipe the
+              // gradient and let the board's traces show through the rail.
+              background: gradients.rail,
             }
           }}
         >
@@ -291,7 +467,10 @@ const LayoutWrapper = ({ children }) => {
       <Box
         component="main"
         sx={{
+          position: 'relative',
+          zIndex: 1,
           flexGrow: 1,
+          minWidth: 0,
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` }
         }}
       >
@@ -299,7 +478,7 @@ const LayoutWrapper = ({ children }) => {
           variant="dense"
           sx={{ minHeight: { xs: `${HEADER_TOOLBAR_HEIGHT}px`, sm: `${HEADER_TOOLBAR_HEIGHT}px` } }}
         />
-        <Box sx={{ p: { xs: 1, sm: 1.5, md: 2 } }}>{children || <Outlet />}</Box>
+        <Box sx={{ p: { xs: 1.5, sm: 2, md: 2.5 } }}>{children || <Outlet />}</Box>
         <Snackbar
           open={globalAlert.open}
           autoHideDuration={6000}
@@ -308,13 +487,19 @@ const LayoutWrapper = ({ children }) => {
         >
           <Alert
             severity={globalAlert.severity}
-            variant="filled"
+            variant="standard"
             onClose={() => setGlobalAlert((prev) => ({ ...prev, open: false }))}
             sx={{ width: '100%' }}
           >
             {globalAlert.message}
           </Alert>
         </Snackbar>
+
+        <SessionTimeoutDialog
+          msLeft={warningMsLeft}
+          onStay={stayActive}
+          onLogout={() => endSession()}
+        />
       </Box>
     </Box>
   )

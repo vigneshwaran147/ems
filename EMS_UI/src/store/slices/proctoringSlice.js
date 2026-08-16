@@ -34,6 +34,17 @@ const proctoringSlice = createSlice({
       state.isRecording = false
       state.recordingUrl = action.payload
     },
+    /**
+     * Records a detection in the local timeline, and — only when asked to —
+     * advances the strike counter.
+     *
+     * `countsLocally: false` is passed for every detection that is being sent to
+     * the server, because the server is the only party that knows whether one
+     * costs a strike: review-only types never do, and an unidentified sound does
+     * not until the attempt's grace for coughs is spent. Counting those here
+     * would inflate the candidate's number past the truth, and the exam
+     * auto-terminates off that number.
+     */
     recordViolation: (state, action) => {
       state.violations.push({
         timestamp: new Date().toISOString(),
@@ -41,6 +52,9 @@ const proctoringSlice = createSlice({
         description: action.payload.description,
         severity: action.payload.severity || 'MEDIUM'
       })
+      if (action.payload.countsLocally === false) {
+        return
+      }
       if (Number.isInteger(action.payload.violationLevel)) {
         state.violationCount = Math.min(Math.max(action.payload.violationLevel, state.violationCount), 3)
       } else {
@@ -93,11 +107,21 @@ const proctoringSlice = createSlice({
     setProctoringError: (state, action) => {
       state.error = action.payload
     },
+    /**
+     * Adopts the server's strike count verbatim.
+     *
+     * Assignment, not `Math.max` against the local value. The old ratchet could
+     * only ever raise the count, so a local number that had run ahead of the
+     * server — which is what happens the moment a detection turns out to cost no
+     * strike — could never be walked back, and the exam then terminated itself
+     * on a count the server did not share. The server is the only counter; if it
+     * says 1, the answer is 1.
+     */
     syncViolationCount: (state, action) => {
       if (!Number.isInteger(action.payload)) {
         return
       }
-      state.violationCount = Math.min(Math.max(action.payload, state.violationCount), 3)
+      state.violationCount = Math.min(Math.max(action.payload, 0), 3)
     }
   }
 })

@@ -9,12 +9,23 @@ const isLocalDev = import.meta.env.DEV && !import.meta.env.PROD
 //   ? ''
 //   : (import.meta.env?.VITE_API_URL || 'http://localhost:8080')
 // ==> Available at your primary URL https://ems-1ze5.onrender.com
-const API_BASE_URL = 'https://ems-1ze5.onrender.com'
+// const API_BASE_URL = 'https://ems-1ze5.onrender.com'
+const API_BASE_URL = 'http://localhost:8080'
+
+// Without this, axios' default is 0 (no timeout): a request against a dead
+// network can hang indefinitely instead of rejecting, which leaves any
+// isLoading flag driven by it stuck true. 20s comfortably covers a slow
+// connection while still failing a truly unreachable one in bounded time.
+// Endpoints that need more (e.g. large evidence uploads) pass their own
+// per-request `timeout` to override this.
+const REQUEST_TIMEOUT_MS = 20000
+
 const apiClient = axios.create({
 	baseURL: `${API_BASE_URL}/api`,
 	headers: {
 		'Content-Type': 'application/json',
 	},
+	timeout: REQUEST_TIMEOUT_MS,
 })
 
 // Request interceptor to add token
@@ -32,6 +43,19 @@ apiClient.interceptors.request.use(
 	}
 )
 
+// Endpoints that establish a session rather than consume one. A 401 from any of
+// them is the answer, not a stale-token symptom: refreshing and replaying a
+// rejected login only replaces "Invalid credentials" with a refresh failure —
+// and, because that path dispatches logout, it does so while wiping state out
+// from under a user who was only trying to sign back in.
+// Logout belongs here for the mirror-image reason: it is the one call whose
+// whole purpose is to invalidate the session. Refreshing and replaying it would
+// mint a new token pair on the way out, leaving the user "logged out" holding
+// credentials newer than the ones they started with.
+const SESSION_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh-token', '/auth/logout']
+
+const isSessionEndpoint = (url = '') => SESSION_ENDPOINTS.some((path) => url.includes(path))
+
 // Response interceptor to handle token refresh
 apiClient.interceptors.response.use(
 	(response) => response,
@@ -39,11 +63,33 @@ apiClient.interceptors.response.use(
 		const originalRequest = error.config
 		const state = store.getState()
 
-		if (error.response?.status === 401 && !originalRequest._retry && state.auth.refreshToken) {
+		if (
+			error.response?.status === 401 &&
+			!originalRequest._retry &&
+			!isSessionEndpoint(originalRequest?.url) &&
+			state.auth.refreshToken
+		) {
+			// Marked BEFORE the retry, not after it: the replayed request re-enters
+			// this same interceptor, so without the flag a 401 that a fresh token
+			// cannot fix (an authorisation problem, or a server-side bug answering
+			// 401 regardless of credentials) refreshes and replays forever. On a
+			// non-idempotent endpoint that is not just a loop — every replay is
+			// another write. It let one detected violation record repeated strikes
+			// against a candidate until the exam terminated itself.
+			originalRequest._retry = true
 			try {
-				const refreshResponse = await axios.post(`${API_BASE_URL}/api/auth/refresh-token`, {
-					refreshToken: state.auth.refreshToken,
-				})
+				// Raw axios, so apiClient's timeout does not apply — it has to be
+				// passed explicitly. Without it this call inherits axios' default of
+				// 0 (wait forever): against a backend that accepts the connection and
+				// never answers, the awaited promise never settles, the original
+				// request never rejects, and whatever isLoading flag it drives stays
+				// true with no error to clear it. That is the one remaining path that
+				// can strand the UI badly enough to look like corrupt storage.
+				const refreshResponse = await axios.post(
+					`${API_BASE_URL}/api/auth/refresh-token`,
+					{ refreshToken: state.auth.refreshToken },
+					{ timeout: REQUEST_TIMEOUT_MS },
+				)
 				const data = refreshResponse.data.data
 				const token = data.accessToken || data.token
 				const refreshToken = data.refreshToken

@@ -30,7 +30,7 @@ const ProctoringCameraPreview = ({ previewStream, recordingDurationSec, sx }) =>
         overflow: 'hidden',
         border: '1px solid',
         borderColor: 'divider',
-        bgcolor: '#081526',
+        bgcolor: '#03110C',
         ...sx
       }}
     >
@@ -49,10 +49,10 @@ const ProctoringCameraPreview = ({ previewStream, recordingDurationSec, sx }) =>
           px: 1,
           py: 0.2,
           borderRadius: 1,
-          bgcolor: 'rgba(0, 0, 0, 0.72)'
+          bgcolor: 'rgba(3, 17, 12, 0.78)'
         }}
       >
-        <Typography sx={{ color: '#fff', fontSize: 12, fontFamily: 'monospace', fontWeight: 700 }}>
+        <Typography sx={{ color: '#E9F3EE', fontSize: 12, fontFamily: 'monospace', fontWeight: 700 }}>
           {toDuration(recordingDurationSec)}
         </Typography>
       </Box>

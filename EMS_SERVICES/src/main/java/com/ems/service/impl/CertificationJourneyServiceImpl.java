@@ -164,7 +164,7 @@ public class CertificationJourneyServiceImpl implements CertificationJourneyServ
 		    .orElse(null);
 
 	    if (latestPrerequisiteApplication != null
-		    && latestPrerequisiteApplication.getApplicationStatus() == CertificationApplicationStatus.FAILED) {
+		    && latestPrerequisiteApplication.getApplicationStatus().isUnsuccessfulAttempt()) {
 		return new CertificationEligibilityResponse(
 			requestedLevel,
 			false,

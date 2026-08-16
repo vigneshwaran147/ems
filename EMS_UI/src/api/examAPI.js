@@ -24,6 +24,18 @@ export const examAPI = {
 	getSessionQuestion: (sessionToken, questionNumber) =>
 		apiClient.get(`/exam-workflow/sessions/${sessionToken}/questions/${questionNumber}`),
 
+	// Autosave of the answers given so far. Sent on a timer and on navigation so
+	// an attempt cut short by a dropped connection, a flat battery or a closed
+	// laptop can be rejoined with its work intact. The complete answer set goes
+	// on every call — see saveProgress on the server for why it is not a delta.
+	// A short timeout on purpose: this is a background call, and one that hangs
+	// on a dying network must give way to the next attempt rather than block it.
+	saveExamProgress: (sessionToken, data) =>
+		apiClient.post(`/exam-workflow/sessions/${sessionToken}/progress`, data, { timeout: 8000 }),
+
+	getExamProgress: (sessionToken) =>
+		apiClient.get(`/exam-workflow/sessions/${sessionToken}/progress`),
+
 	// Submission & result use the numeric exam session id (examSessionId from startExam).
 	// Use /submit for compatibility with backend deployments where /evaluate alias is unavailable.
 	submitExam: (examSessionId, data) => apiClient.post(`/results/sessions/${examSessionId}/submit`, data),

@@ -110,8 +110,9 @@ const ResultPage = () => {
               p: 4,
               textAlign: 'center',
               background: passed
-                ? 'linear-gradient(135deg, #ecfdf5, #d1fae5)'
-                : 'linear-gradient(135deg, #fef2f2, #fee2e2)'
+                ? 'linear-gradient(150deg, rgba(14,77,60,.65), rgba(4,20,14,.95))'
+                : 'linear-gradient(150deg, rgba(120,26,26,.45), rgba(20,6,6,.95))',
+              border: `1px solid ${passed ? 'rgba(63,211,160,.34)' : 'rgba(248,113,113,.34)'}`
             }}
           >
             {passed ? (
@@ -142,19 +143,19 @@ const ResultPage = () => {
         <Grid item xs={6} md={3}>
           <StatCard
             title="Attempted" value={result.attemptedQuestions}
-            icon={<DoneAllIcon />} gradient="linear-gradient(135deg, #0ea5e9, #38bdf8)"
+            icon={<DoneAllIcon />} tone="info"
           />
         </Grid>
         <Grid item xs={6} md={3}>
           <StatCard
             title="Correct" value={result.correctAnswers}
-            icon={<CheckCircleIcon />} gradient="linear-gradient(135deg, #16a34a, #22c55e)"
+            icon={<CheckCircleIcon />} tone="green"
           />
         </Grid>
         <Grid item xs={6} md={3}>
           <StatCard
             title="Wrong" value={result.wrongAnswers}
-            icon={<CloseIcon />} gradient="linear-gradient(135deg, #ef4444, #f87171)"
+            icon={<CloseIcon />} tone="danger"
           />
         </Grid>
 

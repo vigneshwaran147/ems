@@ -4,13 +4,28 @@ import {
   Box, Grid, Card, CardContent, TextField, Button, Stack, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel,
   TablePagination, Chip, Dialog, DialogTitle, DialogContent, DialogActions,
-  Typography, Breadcrumbs, InputAdornment, CircularProgress, Link as MuiLink,
+  Typography, InputAdornment, CircularProgress,
   Divider, Alert
 } from '@mui/material'
 import { reportAPI } from '../../api/reportAPI'
 import SearchIcon from '@mui/icons-material/SearchRounded'
-import HomeIcon from '@mui/icons-material/HomeRounded'
 import FileDownloadIcon from '@mui/icons-material/FileDownloadRounded'
+import { tokens, shadows } from '../../styles/tokens'
+import PageHeader from '../../components/common/PageHeader'
+import PcbSelect from '../../components/common/PcbSelect'
+import PcbDateField, { parseFieldValue } from '../../components/common/PcbDateField'
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All Statuses' },
+  { value: 'Completed', label: 'Completed' },
+  { value: 'In Progress', label: 'In Progress' },
+]
+
+const RESULT_OPTIONS = [
+  { value: '', label: 'All Results' },
+  { value: 'PASSED', label: 'Passed' },
+  { value: 'FAILED', label: 'Failed' },
+]
 
 const splitCsvLine = (line) => {
   const values = []
@@ -69,17 +84,16 @@ const normalizeStatus = (statusValue, resultValue) => {
   return 'In Progress'
 }
 
-const PRIMARY_COLOR = '#0F3D7A'
-const SECONDARY_BG = '#F8FAFB'
-const BORDER_COLOR = '#E5E7EB'
+const PRIMARY_COLOR = tokens.copperLt
+const BORDER_COLOR = tokens.line
 
 const headerCellSx = {
   fontWeight: 700,
-  color: '#1f2937',
+  color: tokens.ink,
   borderBottom: `1px solid ${BORDER_COLOR}`,
-  bgcolor: '#F5F5F5'
+  bgcolor: tokens.sub3
 }
-const filterTextFieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 1, backgroundColor: '#fff' } }
+const filterTextFieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 1, backgroundColor: 'rgba(3,16,11,.72)' } }
 const searchInputProps = {
   startAdornment: (
     <InputAdornment position="start">
@@ -172,12 +186,17 @@ const ExamReportPageEnhanced = () => {
       const matchStatus = searchFilters.status === '' || exam.status === searchFilters.status
       const matchResult = searchFilters.result === '' || exam.result === searchFilters.result
 
+      // Both bounds are whole *local* days, so an end date of the 15th keeps
+      // the exams sat on the 15th rather than cutting them off at midnight.
       let matchDateRange = true
-      if (searchFilters.startDate) {
-        matchDateRange = new Date(exam.examDate) >= new Date(searchFilters.startDate)
+      const examDate = new Date(exam.examDate)
+      const from = parseFieldValue(searchFilters.startDate)
+      const to = parseFieldValue(searchFilters.endDate)
+      if (from) {
+        matchDateRange = examDate >= from
       }
-      if (searchFilters.endDate && matchDateRange) {
-        matchDateRange = new Date(exam.examDate) <= new Date(searchFilters.endDate)
+      if (to && matchDateRange) {
+        matchDateRange = examDate < new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1)
       }
 
       return matchExamName && matchExamId && matchCandidateName && matchCandidateId && matchStatus && matchResult && matchDateRange
@@ -272,45 +291,34 @@ const ExamReportPageEnhanced = () => {
     }
   }
 
-  const getResultColor = (result) => result === 'PASSED' ? '#10b981' : '#ef4444'
+  const getResultColor = (result) => result === 'PASSED' ? tokens.greenGlow : tokens.danger
   const getStatusColor = (status) => {
-    if (status === 'Completed') return '#3b82f6'
-    if (status === 'In Progress') return '#ef59e0b'
-    return '#6b7280'
+    if (status === 'Completed') return tokens.info
+    if (status === 'In Progress') return tokens.warn
+    return tokens.muted
   }
 
   return (
-    <Box sx={{ p: 3, bgcolor: SECONDARY_BG }}>
-      {/* Breadcrumb */}
-      <Breadcrumbs sx={{ mb: 3 }}>
-        <MuiLink underline="hover" color="inherit" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <HomeIcon fontSize="small" /> Home
-        </MuiLink>
-        <MuiLink underline="hover" color="inherit">Reports</MuiLink>
-        <Typography color="textPrimary" fontWeight={600}>Exam Report</Typography>
-      </Breadcrumbs>
-
-      {/* Header with Title & Actions */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" fontWeight={700} sx={{ color: PRIMARY_COLOR, mb: 0.5 }}>
-            Exam Report
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Comprehensive exam performance and results analysis
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1.5}>
+    <Box>
+      <PageHeader
+        title="Exam Report"
+        subtitle="Comprehensive exam performance and results analysis"
+        breadcrumbs={[
+          { label: 'Home', to: '/admin/dashboard' },
+          { label: 'Reports' },
+          { label: 'Exam Report' }
+        ]}
+        action={
           <Button
             variant="contained"
             startIcon={<FileDownloadIcon />}
             onClick={() => handleExport('CSV')}
-            sx={{ background: PRIMARY_COLOR, fontWeight: 600, textTransform: 'none' }}
+            sx={{ fontWeight: 600, textTransform: 'none' }}
           >
             Export CSV
           </Button>
-        </Stack>
-      </Box>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
@@ -321,14 +329,14 @@ const ExamReportPageEnhanced = () => {
       {/* Statistics Cards */}
       <Grid container spacing={2.5} sx={{ mb: 3 }}>
         {[
-          { label: 'Total Exams', value: stats.total, bg: '#EEF2FF', color: PRIMARY_COLOR },
-          { label: 'Completed', value: stats.completed, bg: '#F0FFF0', color: '#3b82f6' },
-          { label: 'In Progress', value: stats.inProgress, bg: '#FEF3C7', color: '#f59e0b' },
-          { label: 'Failed', value: stats.failed, bg: '#FFE2E2', color: '#ef4444' },
-          { label: 'Passed', value: stats.passed, bg: '#ECFDF5', color: '#10b981' }
+          { label: 'Total Exams', value: stats.total, color: PRIMARY_COLOR },
+          { label: 'Completed', value: stats.completed, color: tokens.info },
+          { label: 'In Progress', value: stats.inProgress, color: tokens.warn },
+          { label: 'Failed', value: stats.failed, color: tokens.danger },
+          { label: 'Passed', value: stats.passed, color: tokens.greenGlow }
         ].map((stat) => (
           <Grid item xs={12} sm={6} md={2.4} key={stat.label}>
-            <Card sx={{ border: `1px solid ${BORDER_COLOR}`, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <Card sx={{ border: `1px solid ${BORDER_COLOR}`, boxShadow: shadows.card }}>
               <CardContent sx={{ textAlign: 'center', p: 2 }}>
                 <Typography variant="h3" fontWeight={700} sx={{ color: stat.color, mb: 1 }}>
                   {stat.value}
@@ -343,7 +351,7 @@ const ExamReportPageEnhanced = () => {
       </Grid>
 
       {/* Search & Filter Card */}
-      <Card sx={{ border: `1px solid ${BORDER_COLOR}`, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', mb: 3 }}>
+      <Card sx={{ border: `1px solid ${BORDER_COLOR}`, boxShadow: shadows.card, mb: 3 }}>
         <CardContent sx={{ p: 2.5 }}>
           <Typography variant="h6" fontWeight={700} sx={{ mb: 2, fontSize: '1rem' }}>
             Search & Filter
@@ -386,61 +394,53 @@ const ExamReportPageEnhanced = () => {
               />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
-                fullWidth size="small" type="date" label="Start Date"
+              <PcbDateField
+                fullWidth size="small" label="Start Date"
                 value={searchFilters.startDate}
-                onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(value) => handleFilterChange('startDate', value)}
+                max={searchFilters.endDate || undefined}
                 sx={filterTextFieldSx}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
-                fullWidth size="small" type="date" label="End Date"
+              <PcbDateField
+                fullWidth size="small" label="End Date"
                 value={searchFilters.endDate}
-                onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                InputLabelProps={{ shrink: true }}
+                onChange={(value) => handleFilterChange('endDate', value)}
+                min={searchFilters.startDate || undefined}
                 sx={filterTextFieldSx}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
-                fullWidth size="small" select label="Status"
+              <PcbSelect
+                fullWidth size="small" label="Status"
                 value={searchFilters.status}
-                onChange={(e) => handleFilterChange('status', e.target.value)}
-                SelectProps={{ native: true }}
-                InputLabelProps={{ shrink: true }}
+                onChange={(value) => handleFilterChange('status', value)}
+                placeholder="All Statuses"
+                options={STATUS_OPTIONS}
                 sx={filterTextFieldSx}
-              >
-                <option value="">All Statuses</option>
-                <option value="Completed">Completed</option>
-                <option value="In Progress">In Progress</option>
-              </TextField>
+              />
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
-              <TextField
-                fullWidth size="small" select label="Result"
+              <PcbSelect
+                fullWidth size="small" label="Result"
                 value={searchFilters.result}
-                onChange={(e) => handleFilterChange('result', e.target.value)}
-                SelectProps={{ native: true }}
-                InputLabelProps={{ shrink: true }}
+                onChange={(value) => handleFilterChange('result', value)}
+                placeholder="All Results"
+                options={RESULT_OPTIONS}
                 sx={filterTextFieldSx}
-              >
-                <option value="">All Results</option>
-                <option value="PASSED">Passed</option>
-                <option value="FAILED">Failed</option>
-              </TextField>
+              />
             </Grid>
           </Grid>
         </CardContent>
       </Card>
 
       {/* Report Table */}
-      <Card sx={{ border: `1px solid ${BORDER_COLOR}`, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+      <Card sx={{ border: `1px solid ${BORDER_COLOR}`, boxShadow: shadows.card }}>
         <TableContainer sx={{ overflowX: 'auto' }}>
           <Table>
             <TableHead>
-              <TableRow sx={{ backgroundColor: '#F5F5F5' }}>
+              <TableRow sx={{ backgroundColor: tokens.sub3 }}>
                 <TableCell sx={headerCellSx}>
                   <TableSortLabel
                     active={orderBy === 'examId'}
@@ -514,7 +514,7 @@ const ExamReportPageEnhanced = () => {
               )}
               {!loading && paginatedExams.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={13} sx={{ textAlign: 'center', py: 4, color: '#9ca3af' }}>
+                  <TableCell colSpan={13} sx={{ textAlign: 'center', py: 4, color: tokens.muted }}>
                     No records found
                   </TableCell>
                 </TableRow>
@@ -524,35 +524,35 @@ const ExamReportPageEnhanced = () => {
                   <TableRow
                     key={exam.id}
                     onClick={() => handleViewDetails(exam)}
-                    sx={{ cursor: 'pointer', '&:hover': { backgroundColor: '#f9fafb' }, borderBottom: `1px solid ${BORDER_COLOR}` }}
+                    sx={{ cursor: 'pointer', '&:hover': { backgroundColor: 'rgba(192,138,46,.06)' }, borderBottom: `1px solid ${BORDER_COLOR}` }}
                   >
                     <TableCell sx={{ color: PRIMARY_COLOR, fontWeight: 600 }}>{exam.examId}</TableCell>
-                    <TableCell sx={{ color: '#1f2937' }}>{exam.examName}</TableCell>
-                    <TableCell sx={{ color: '#1f2937', fontWeight: 600 }}>{exam.examLevel}</TableCell>
-                    <TableCell sx={{ color: '#6b7280' }}>{exam.candidateId}</TableCell>
-                    <TableCell sx={{ color: '#1f2937' }}>{exam.candidateName}</TableCell>
-                    <TableCell sx={{ color: '#6b7280' }}>{new Date(exam.examDate).toLocaleDateString()}</TableCell>
-                    <TableCell sx={{ color: '#1f2937', fontWeight: 600 }}>{Math.round(exam.score)}/{exam.totalScore}</TableCell>
-                    <TableCell sx={{ color: '#1f2937', fontWeight: 600 }}>{exam.percentage}%</TableCell>
+                    <TableCell sx={{ color: tokens.ink }}>{exam.examName}</TableCell>
+                    <TableCell sx={{ color: tokens.ink, fontWeight: 600 }}>{exam.examLevel}</TableCell>
+                    <TableCell sx={{ color: tokens.body }}>{exam.candidateId}</TableCell>
+                    <TableCell sx={{ color: tokens.ink }}>{exam.candidateName}</TableCell>
+                    <TableCell sx={{ color: tokens.body }}>{new Date(exam.examDate).toLocaleDateString()}</TableCell>
+                    <TableCell sx={{ color: tokens.ink, fontWeight: 600 }}>{Math.round(exam.score)}/{exam.totalScore}</TableCell>
+                    <TableCell sx={{ color: tokens.ink, fontWeight: 600 }}>{exam.percentage}%</TableCell>
                     <TableCell>
                       <Chip
                         label={exam.result}
                         size="small"
-                        sx={{ bgcolor: getResultColor(exam.result), color: '#fff', fontWeight: 600, fontSize: '0.75rem' }}
+                        sx={{ bgcolor: getResultColor(exam.result), color: '#03110C', fontWeight: 600, fontSize: '0.75rem' }}
                       />
                     </TableCell>
                     <TableCell>
                       <Chip
                         label={exam.status}
                         size="small"
-                        sx={{ bgcolor: getStatusColor(exam.status), color: '#fff', fontWeight: 600, fontSize: '0.75rem' }}
+                        sx={{ bgcolor: getStatusColor(exam.status), color: '#03110C', fontWeight: 600, fontSize: '0.75rem' }}
                       />
                     </TableCell>
-                    <TableCell sx={{ color: exam.certificateId ? '#047857' : '#6b7280', fontWeight: exam.certificateId ? 600 : 500 }}>
+                    <TableCell sx={{ color: exam.certificateId ? tokens.greenGlow : tokens.muted, fontWeight: exam.certificateId ? 600 : 500 }}>
                       {exam.certificateId || 'Not Generated'}
                     </TableCell>
-                    <TableCell sx={{ color: '#1f2937', fontWeight: 600 }}>{exam.questionsCorrect}/{exam.questionsAttempted}</TableCell>
-                    <TableCell sx={{ color: '#6b7280', fontSize: '0.875rem' }}>{new Date(exam.lastUpdated).toLocaleDateString()}</TableCell>
+                    <TableCell sx={{ color: tokens.ink, fontWeight: 600 }}>{exam.questionsCorrect}/{exam.questionsAttempted}</TableCell>
+                    <TableCell sx={{ color: tokens.body, fontSize: '0.875rem' }}>{new Date(exam.lastUpdated).toLocaleDateString()}</TableCell>
                   </TableRow>
                 ))
               )}
@@ -573,7 +573,7 @@ const ExamReportPageEnhanced = () => {
 
       {/* Details Dialog */}
       <Dialog open={detailsOpen} onClose={() => setDetailsOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700, fontSize: '1.25rem', py: 2, bgcolor: PRIMARY_COLOR, color: '#fff' }}>
+        <DialogTitle sx={{ fontWeight: 700, fontSize: '1.25rem', py: 2, bgcolor: tokens.sub3, color: tokens.copperLt }}>
           Exam Details
         </DialogTitle>
         <DialogContent dividers sx={{ py: 3 }}>
@@ -610,7 +610,7 @@ const ExamReportPageEnhanced = () => {
                   </Grid>
                   <Grid item xs={6}>
                     <Typography variant="caption" color="text.secondary" fontWeight={600}>Result</Typography>
-                    <Chip label={selectedExam.result} sx={{ bgcolor: getResultColor(selectedExam.result), color: '#fff', fontWeight: 600 }} />
+                    <Chip label={selectedExam.result} sx={{ bgcolor: getResultColor(selectedExam.result), color: '#03110C', fontWeight: 600 }} />
                   </Grid>
                 </Grid>
               </Box>

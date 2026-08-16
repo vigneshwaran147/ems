@@ -48,6 +48,18 @@ public class ExamSession extends BaseAuditEntity {
     @JoinColumn(name = "exam_ref", nullable = false)
     private Exam exam;
 
+    /**
+     * The application this attempt was sat under.
+     *
+     * <p>Nullable only for sessions written before the column existed, whose
+     * application cannot always be identified after the fact. A {@code null}
+     * means "unknown", never "none" — code that decides whether an attempt has
+     * been used must not read an unlinked legacy session as a free one.</p>
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "application_ref")
+    private CertificationApplication certificationApplication;
+
     @Column(name = "session_start_time")
     private Instant sessionStartTime;
 
@@ -69,4 +81,33 @@ public class ExamSession extends BaseAuditEntity {
 
     @Column(name = "selected_question_ids_json")
     private String selectedQuestionIdsJson;
+
+    /**
+     * The candidate's answers so far, autosaved while the attempt is running.
+     *
+     * <p>Answers used to live only in the browser until the moment of submission,
+     * which made every interruption total: a dropped connection, a flat battery
+     * or a closed laptop lost an hour's work even though the session itself
+     * survived and could be rejoined. Held here as
+     * {@code {"<questionId>": ["option", ...]}} so a resumed attempt comes back
+     * with what was already answered, from any machine.</p>
+     *
+     * <p>This is a draft, never a result. Scoring reads the answers posted with
+     * the submission; this column only decides what the candidate sees when they
+     * come back.</p>
+     */
+    @Column(name = "answers_draft_json")
+    private String answersDraftJson;
+
+    /** Questions the candidate flagged to revisit, as a JSON array of ids. */
+    @Column(name = "marked_for_review_json")
+    private String markedForReviewJson;
+
+    /** 1-indexed question the candidate was last on, so a resume lands there. */
+    @Column(name = "last_question_number")
+    private Integer lastQuestionNumber;
+
+    /** When the draft above was last written; null until the first autosave. */
+    @Column(name = "progress_saved_at")
+    private Instant progressSavedAt;
 }

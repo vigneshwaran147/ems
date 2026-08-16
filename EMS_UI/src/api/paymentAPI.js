@@ -11,6 +11,9 @@ export const paymentAPI = {
 
 	getPaymentHistory: () => apiClient.get('/payments/history'),
 
+	downloadReceipt: (transactionId) =>
+		apiClient.get(`/payments/${transactionId}/receipt`, { responseType: 'blob' }),
+
 	initiateRefund: (transactionId, reason) =>
 		apiClient.post(`/payments/${transactionId}/refund`, { reason }),
 }

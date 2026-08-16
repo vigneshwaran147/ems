@@ -1,10 +1,14 @@
 package com.ems.service.impl;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -14,13 +18,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.ems.dto.request.ExamProgressSaveRequest;
 import com.ems.dto.request.ExamStartRequest;
 import com.ems.dto.request.ExamWorkflowApplicationRequest;
 import com.ems.dto.request.PaymentCompletionRequest;
 import com.ems.dto.request.PaymentInitiationRequest;
 import com.ems.dto.request.PaymentVerificationRequest;
+import com.ems.dto.request.QuestionAnswerSubmissionRequest;
 import com.ems.dto.request.WorkflowExamScheduleRequest;
 import com.ems.dto.response.CertificationEligibilityResponse;
+import com.ems.dto.response.ExamProgressResponse;
 import com.ems.dto.response.ExamQuestionPayloadResponse;
 import com.ems.dto.response.ExamSessionQuestionResponse;
 import com.ems.dto.response.ExamStartResponse;
@@ -51,6 +58,7 @@ import com.ems.repository.UserRepository;
 import com.ems.service.CertificationJourneyService;
 import com.ems.service.ExamWorkflowService;
 import com.ems.service.PaymentService;
+import com.ems.util.ExamStartWindow;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,13 +74,18 @@ import lombok.extern.slf4j.Slf4j;
 public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 
 	private static final int TOTAL_QUESTIONS = 30;
+	/** Fallback when an exam carries no duration; matches the client's old default. */
+	private static final int DEFAULT_EXAM_DURATION_MINUTES = 60;
 	private static final int COUNT_LOW = 6;
 	private static final int COUNT_MEDIUM = 12;
 	private static final int COUNT_HIGH = 12;
-	private static final String VIOLATION_RESTART_MARKER = "3 proctoring violations";
 	private static final String VIOLATION_RESTART_MESSAGE = "Exam was terminated after 3 violations. Re-apply and complete payment to restart from question 1.";
 
 	private static final TypeReference<List<Long>> LONG_LIST_TYPE = new TypeReference<>() {
+	};
+
+	/** Answer drafts are keyed by question id as a string, JSON-object style. */
+	private static final TypeReference<Map<String, List<String>>> ANSWER_MAP_TYPE = new TypeReference<>() {
 	};
 
 	private final CertificationJourneyService certificationJourneyService;
@@ -202,6 +215,36 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 			throw new BusinessException("Application is not linked to an exam", HttpStatus.BAD_REQUEST);
 		}
 
+		/*
+		 * Scheduling is for an attempt that has not happened yet. Once one has,
+		 * re-scheduling is only ever the first half of sitting the exam a second
+		 * time on one payment, and it was reachable straight from the applications
+		 * list: a spent application still offered "Continue to Next Step", which
+		 * led here and then to start.
+		 *
+		 * A still-running session is the exception, since rejoining it is not a
+		 * second attempt — but it does not need scheduling either, so it is
+		 * refused here and handled at start.
+		 */
+		String reScheduleIssue = evaluateReScheduleIssue(application);
+		if (reScheduleIssue != null) {
+			throw new BusinessException(reScheduleIssue, HttpStatus.BAD_REQUEST);
+		}
+
+		/*
+		 * A slot is only worth booking if it can still be attended. The bound is
+		 * the close of the window rather than the booked time itself, because a
+		 * candidate confirming "now" sends an instant that is already a few
+		 * seconds old by the time it arrives, and on a slow connection a few
+		 * minutes old — refusing that would block the one booking they are most
+		 * likely to make.
+		 */
+		if (ExamStartWindow.hasClosed(request.scheduledExamTime(), Instant.now())) {
+			throw new BusinessException(
+					"That time has already passed. Pick a slot you can still attend.",
+					HttpStatus.BAD_REQUEST);
+		}
+
 		Exam exam = application.getExam();
 		if (exam.getScheduledStartTime() != null && request.scheduledExamTime().isBefore(exam.getScheduledStartTime())) {
 			throw new BusinessException("Scheduled exam time cannot be earlier than the exam window start",
@@ -227,32 +270,32 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 			throw new BusinessException(readinessIssue, HttpStatus.BAD_REQUEST);
 		}
 
+		/*
+		 * Scoped to this application, not to the candidate's history with the
+		 * exam. The two differ the moment anyone re-applies, and reading the
+		 * second as the first is what used to resume an attempt begun under an
+		 * application the candidate had already spent.
+		 */
 		ExamSession existingSession = examSessionRepository
-				.findTopByUserAndExamOrderBySessionStartTimeDescIdDesc(application.getUser(), application.getExam())
+				.findTopByCertificationApplicationOrderBySessionStartTimeDescIdDesc(application)
 				.orElse(null);
-		if (existingSession != null && existingSession.getSessionStatus() == ExamStatus.IN_PROGRESS) {
-			List<Long> selectedIds = readLongList(existingSession.getSelectedQuestionIdsJson());
-			if (selectedIds.isEmpty()) {
-				throw new BusinessException("Active exam session has no selected questions", HttpStatus.INTERNAL_SERVER_ERROR);
-			}
 
-			Question firstQuestion = questionRepository.findById(selectedIds.get(0))
-					.orElseThrow(() -> new ResourceNotFoundException("Question not found in existing exam session"));
+		if (existingSession != null) {
+			return resumeOrRefuse(application, existingSession);
+		}
 
-			log.info("Exam resume applicationId={} sessionToken={} questionCount={}",
-					applicationId, existingSession.getSessionToken(), selectedIds.size());
-
-			return new ExamStartResponse(
-					application.getId(),
-					application.getExam().getId(),
-					application.getExam().getExamCode(),
-					application.getCertificationLevel(),
-					existingSession.getSessionToken(),
-					existingSession.getId(),
-					existingSession.getSessionStartTime(),
-					selectedIds.size(),
-					selectedIds,
-					toQuestionPayload(firstQuestion));
+		/*
+		 * Checked here, below the resume branch, and not with the other
+		 * readiness rules. Those describe the application, which does not change
+		 * once an attempt is running; this one describes the clock, and a
+		 * session that already exists began inside its own window and carries
+		 * its own timer from that moment. Closing the window on a rejoin would
+		 * take an attempt the candidate paid for and started on time away from
+		 * them for having lost their connection eleven minutes in.
+		 */
+		String windowIssue = evaluateStartWindowIssue(application);
+		if (windowIssue != null) {
+			throw new BusinessException(windowIssue, HttpStatus.BAD_REQUEST);
 		}
 
 		List<Question> selectedQuestions = buildProportionalQuestionSet(application.getCertificationLevel());
@@ -263,6 +306,7 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				.sessionToken(UUID.randomUUID())
 				.user(application.getUser())
 				.exam(application.getExam())
+				.certificationApplication(application)
 				.sessionStartTime(Instant.now())
 				.sessionStatus(ExamStatus.IN_PROGRESS)
 				.violationCount(0)
@@ -285,7 +329,86 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				savedSession.getSessionStartTime(),
 				TOTAL_QUESTIONS,
 				selectedIds,
-				firstQuestion);
+				firstQuestion,
+				examDurationSeconds(application),
+				false,
+				null);
+	}
+
+	/**
+	 * Decides what a second start on an application that already has an attempt
+	 * means: rejoining one that is genuinely still running, or trying to buy a
+	 * second sitting on one payment.
+	 *
+	 * <p>The distinction is the session's own status, which is the only record of
+	 * how the attempt ended. {@code IN_PROGRESS} is an interrupted sitting — a
+	 * closed laptop, a dropped connection, a browser that crashed — and rejoining
+	 * it costs the candidate nothing they did not already have, because the clock
+	 * still runs from the original start and the strikes are still on the session.
+	 * Anything else is an attempt that reached an end: terminated by proctoring,
+	 * or submitted and scored. Those are spent, and the way back is a new
+	 * application and a new payment.</p>
+	 */
+	private ExamStartResponse resumeOrRefuse(CertificationApplication application, ExamSession existingSession) {
+		if (existingSession.getSessionStatus() != ExamStatus.IN_PROGRESS) {
+			throw new BusinessException(
+					existingSession.getSessionStatus() == ExamStatus.INVALIDATED
+							? "This attempt was terminated by proctoring. Re-apply and complete payment to restart from question 1."
+							: "This application has already been used for an exam attempt. Re-apply and complete payment to sit it again.",
+					HttpStatus.BAD_REQUEST);
+		}
+
+		List<Long> selectedIds = readLongList(existingSession.getSelectedQuestionIdsJson());
+		if (selectedIds.isEmpty()) {
+			throw new BusinessException("Active exam session has no selected questions", HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
+		Question firstQuestion = questionRepository.findById(selectedIds.get(0))
+				.orElseThrow(() -> new ResourceNotFoundException("Question not found in existing exam session"));
+
+		long remainingSeconds = remainingSeconds(application, existingSession);
+
+		ExamProgressResponse savedProgress = toProgressResponse(existingSession, remainingSeconds);
+
+		log.info("Exam resume applicationId={} sessionToken={} questionCount={} remainingSeconds={} answersRestored={}",
+				application.getId(), existingSession.getSessionToken(), selectedIds.size(), remainingSeconds,
+				savedProgress == null ? 0 : savedProgress.answers().size());
+
+		return new ExamStartResponse(
+				application.getId(),
+				application.getExam().getId(),
+				application.getExam().getExamCode(),
+				application.getCertificationLevel(),
+				existingSession.getSessionToken(),
+				existingSession.getId(),
+				existingSession.getSessionStartTime(),
+				selectedIds.size(),
+				selectedIds,
+				toQuestionPayload(firstQuestion),
+				remainingSeconds,
+				true,
+				savedProgress);
+	}
+
+	/** Time left in an attempt, measured from when its session began. */
+	private long remainingSeconds(CertificationApplication application, ExamSession session) {
+		long durationSeconds = examDurationSeconds(
+				application != null && application.getExam() != null ? application.getExam() : session.getExam());
+		Instant startedAt = session.getSessionStartTime();
+		if (startedAt == null) {
+			return durationSeconds;
+		}
+		long elapsed = Duration.between(startedAt, Instant.now()).toSeconds();
+		return Math.max(0L, durationSeconds - elapsed);
+	}
+
+	private long examDurationSeconds(CertificationApplication application) {
+		return examDurationSeconds(application == null ? null : application.getExam());
+	}
+
+	private long examDurationSeconds(Exam exam) {
+		Integer durationMinutes = exam == null ? null : exam.getDurationMinutes();
+		return (durationMinutes == null ? DEFAULT_EXAM_DURATION_MINUTES : durationMinutes) * 60L;
 	}
 
 	@Override
@@ -317,6 +440,119 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				toQuestionPayload(question));
 	}
 
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>Last write wins, deliberately. The client sends the whole draft on every
+	 * save rather than a delta, because these arrive over exactly the network
+	 * that is failing — a save queued while offline and flushed on reconnect can
+	 * overtake a later one, and merging two partial views of the same paper would
+	 * be guesswork. A whole draft that arrives out of order costs at most the
+	 * answers given between the two saves, and the next save restores them.</p>
+	 *
+	 * <p>Refused once the session is no longer running, so a stale client that
+	 * reconnects after its attempt was terminated or submitted cannot write over
+	 * the record of it.</p>
+	 */
+	@Override
+	public ExamProgressResponse saveProgress(String email, UUID sessionToken, ExamProgressSaveRequest request) {
+		ExamSession session = examSessionRepository.findBySessionTokenAndUserEmailIgnoreCase(sessionToken, email)
+				.orElseThrow(() -> new ResourceNotFoundException("Active exam session not found"));
+
+		if (session.getSessionStatus() != ExamStatus.IN_PROGRESS) {
+			throw new BusinessException("Exam session is no longer active", HttpStatus.BAD_REQUEST);
+		}
+
+		// Answers for questions outside this session's paper are dropped rather
+		// than rejected: a save is a background call the candidate never sees, and
+		// failing the whole draft over one stray id would silently stop autosaving
+		// for the rest of the attempt.
+		Set<Long> paper = new HashSet<>(readLongList(session.getSelectedQuestionIdsJson()));
+		Map<String, List<String>> answers = new LinkedHashMap<>();
+		for (QuestionAnswerSubmissionRequest answer : request.answers()) {
+			if (answer == null || answer.questionId() == null || !paper.contains(answer.questionId())) {
+				continue;
+			}
+			answers.put(
+					String.valueOf(answer.questionId()),
+					answer.selectedOptions() == null ? List.of() : List.copyOf(answer.selectedOptions()));
+		}
+
+		List<Long> markedForReview = request.markedForReview() == null
+				? List.of()
+				: request.markedForReview().stream().filter(paper::contains).toList();
+
+		session.setAnswersDraftJson(writeJson(answers, "Failed to save exam progress"));
+		session.setMarkedForReviewJson(writeJson(markedForReview, "Failed to save exam progress"));
+		session.setLastQuestionNumber(clampQuestionNumber(request.currentQuestionNumber(), paper.size()));
+		session.setProgressSavedAt(Instant.now());
+
+		ExamSession saved = examSessionRepository.save(session);
+
+		log.debug("Exam progress saved sessionToken={} answered={} marked={}",
+				sessionToken, answers.size(), markedForReview.size());
+
+		return toProgressResponse(saved, remainingSeconds(saved.getCertificationApplication(), saved));
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public ExamProgressResponse getProgress(String email, UUID sessionToken) {
+		ExamSession session = examSessionRepository.findBySessionTokenAndUserEmailIgnoreCase(sessionToken, email)
+				.orElseThrow(() -> new ResourceNotFoundException("Active exam session not found"));
+
+		ExamProgressResponse progress = toProgressResponse(
+				session,
+				remainingSeconds(session.getCertificationApplication(), session));
+
+		// A session that has never autosaved still has a token and a clock to
+		// report; only the draft is empty.
+		return progress != null
+				? progress
+				: new ExamProgressResponse(
+						session.getSessionToken(),
+						List.of(),
+						List.of(),
+						null,
+						null,
+						remainingSeconds(session.getCertificationApplication(), session));
+	}
+
+	/** The stored draft, or {@code null} when nothing has been autosaved yet. */
+	private ExamProgressResponse toProgressResponse(ExamSession session, long remainingSeconds) {
+		if (session.getProgressSavedAt() == null) {
+			return null;
+		}
+
+		Map<String, List<String>> answers = readAnswerMap(session.getAnswersDraftJson());
+		List<ExamProgressResponse.SavedAnswer> savedAnswers = answers.entrySet().stream()
+				.map(entry -> new ExamProgressResponse.SavedAnswer(
+						Long.valueOf(entry.getKey()),
+						entry.getValue() == null ? List.<String>of() : entry.getValue()))
+				.toList();
+
+		return new ExamProgressResponse(
+				session.getSessionToken(),
+				savedAnswers,
+				readLongList(session.getMarkedForReviewJson()),
+				session.getLastQuestionNumber(),
+				session.getProgressSavedAt(),
+				remainingSeconds);
+	}
+
+	/**
+	 * Keeps a resume from landing on a question that is not on the paper.
+	 *
+	 * <p>Returns {@code null} rather than clamping to 1 when the client sent
+	 * nothing, so "no opinion" stays distinguishable from "question 1".</p>
+	 */
+	private Integer clampQuestionNumber(Integer requested, int questionCount) {
+		if (requested == null || questionCount <= 0) {
+			return null;
+		}
+		return Math.min(Math.max(requested, 1), questionCount);
+	}
+
 	@Override
 	@Transactional
 	@CacheEvict(cacheNames = "dashboard", allEntries = true)
@@ -328,12 +564,10 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				.orElseThrow(() -> new ResourceNotFoundException("Exam application not found"));
 
 		CertificationApplicationStatus currentStatus = failedApplication.getApplicationStatus();
-		if (currentStatus != CertificationApplicationStatus.FAILED
-				&& currentStatus != CertificationApplicationStatus.EXPIRED
-				&& currentStatus != CertificationApplicationStatus.REJECTED) {
+		if (!currentStatus.allowsReApplication()) {
 			throw new BusinessException(
-					"Re-application is only allowed for FAILED, EXPIRED or REJECTED applications. Current status: "
-							+ currentStatus,
+					"Re-application is only allowed for FAILED, TERMINATED, EXPIRED or REJECTED applications. "
+							+ "Current status: " + currentStatus,
 					HttpStatus.BAD_REQUEST);
 		}
 
@@ -385,6 +619,8 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				saved.getPaymentStatus(),
 				saved.getAppliedOn(),
 				saved.getScheduledExamTime(),
+				ExamStartWindow.opensAt(saved.getScheduledExamTime()),
+				ExamStartWindow.closesAt(saved.getScheduledExamTime()),
 				saved.getRemarks(),
 				false,
 				isViolationRestartRequired(saved),
@@ -424,16 +660,24 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				application.getPaymentStatus(),
 				application.getAppliedOn(),
 				application.getScheduledExamTime(),
+				ExamStartWindow.opensAt(application.getScheduledExamTime()),
+				ExamStartWindow.closesAt(application.getScheduledExamTime()),
 				application.getRemarks(),
 				canReApply,
 				isViolationRestartRequired(application),
 				resolveRestartMessage(application));
 	}
 
+	/**
+	 * Whether this application was closed by proctoring rather than by a score.
+	 *
+	 * <p>Read from the status now that terminations have one of their own. This
+	 * used to substring-match a marker phrase against the free-text remarks,
+	 * which meant an operator editing a remark could silently change what the
+	 * API reported about how an exam ended.</p>
+	 */
 	private boolean isViolationRestartRequired(CertificationApplication application) {
-		return application.getApplicationStatus() == CertificationApplicationStatus.FAILED
-				&& application.getRemarks() != null
-				&& application.getRemarks().contains(VIOLATION_RESTART_MARKER);
+		return application.getApplicationStatus() == CertificationApplicationStatus.TERMINATED;
 	}
 
 	private String resolveRestartMessage(CertificationApplication application) {
@@ -469,10 +713,42 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 	}
 
 	private List<Long> readLongList(String rawJson) {
+		if (rawJson == null || rawJson.isBlank()) {
+			return List.of();
+		}
 		try {
 			return objectMapper.readValue(rawJson, LONG_LIST_TYPE);
 		} catch (JsonProcessingException ex) {
 			throw new BusinessException("Failed to read session question list", HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	/**
+	 * Reads a saved answer draft, treating unreadable JSON as no draft at all.
+	 *
+	 * <p>The one place in this class where a parse failure is not an error: a
+	 * corrupt draft costs the candidate the answers it held, but failing the
+	 * start call over it would cost them the attempt as well — they would be
+	 * locked out of a session they cannot rejoin and cannot re-sit without paying
+	 * again.</p>
+	 */
+	private Map<String, List<String>> readAnswerMap(String rawJson) {
+		if (rawJson == null || rawJson.isBlank()) {
+			return Map.of();
+		}
+		try {
+			return objectMapper.readValue(rawJson, ANSWER_MAP_TYPE);
+		} catch (JsonProcessingException | IllegalArgumentException ex) {
+			log.warn("Discarding unreadable answer draft: {}", ex.getMessage());
+			return Map.of();
+		}
+	}
+
+	private String writeJson(Object value, String failureMessage) {
+		try {
+			return objectMapper.writeValueAsString(value);
+		} catch (JsonProcessingException ex) {
+			throw new BusinessException(failureMessage, HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
 
@@ -520,9 +796,41 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 				.orElseThrow(() -> new ResourceNotFoundException("Exam application not found"));
 	}
 
+	/**
+	 * Why this application may not be (re)scheduled, or {@code null} if it may.
+	 *
+	 * <p>Legacy sessions with no application link are deliberately not consulted:
+	 * an unlinked session is one whose application is unknown, and refusing to
+	 * schedule on the strength of an attempt that may belong to someone else's
+	 * application would strand a paid candidate. The start path is the backstop
+	 * for those.</p>
+	 */
+	private String evaluateReScheduleIssue(CertificationApplication application) {
+		ExamSession existingSession = examSessionRepository
+				.findTopByCertificationApplicationOrderBySessionStartTimeDescIdDesc(application)
+				.orElse(null);
+
+		if (existingSession == null) {
+			return null;
+		}
+
+		return switch (existingSession.getSessionStatus()) {
+			case IN_PROGRESS -> "An attempt is already in progress for this application. Resume it instead of rescheduling.";
+			case INVALIDATED -> "This attempt was terminated by proctoring. Re-apply and complete payment to restart from question 1.";
+			default -> "This application has already been used for an exam attempt. Re-apply and complete payment to sit it again.";
+		};
+	}
+
 	private String evaluateStartReadinessIssue(CertificationApplication application) {
+		// Split so the candidate is told which of the two happened. They lead to
+		// the same place, but "your exam was terminated" and "you did not pass"
+		// are not the same news, and the merged wording made a terminated
+		// candidate wonder which one they were being told.
+		if (application.getApplicationStatus() == CertificationApplicationStatus.TERMINATED) {
+			return "This attempt was terminated by proctoring. Re-apply and complete payment to restart from question 1.";
+		}
 		if (application.getApplicationStatus() == CertificationApplicationStatus.FAILED) {
-			return "This application is closed after a failed/invalidated attempt. Re-apply and complete payment before starting again.";
+			return "This application is closed after a completed attempt. Re-apply and complete payment before starting again.";
 		}
 		if (application.getPaymentStatus() != PaymentStatus.SUCCESS) {
 			return "Payment must be completed before starting the examination";
@@ -534,5 +842,72 @@ public class ExamWorkflowServiceImpl implements ExamWorkflowService {
 			return "Application is not linked to an exam";
 		}
 		return null;
+	}
+
+	/**
+	 * Why a first sitting cannot begin at this moment, or {@code null} if it can.
+	 *
+	 * <p>Both refusals name rescheduling, because it is the way out of either
+	 * one: the booking can be moved right up until the attempt starts, and the
+	 * payment covers the sitting rather than the date.</p>
+	 */
+	private String evaluateStartWindowIssue(CertificationApplication application) {
+		Instant scheduled = application.getScheduledExamTime();
+		Instant now = Instant.now();
+		if (ExamStartWindow.isOpen(scheduled, now)) {
+			return null;
+		}
+
+		if (ExamStartWindow.hasClosed(scheduled, now)) {
+			return String.format(
+					"Your booked exam slot closed %s ago. Reschedule to pick a new time — "
+							+ "your payment and application stay as they are.",
+					humanize(Duration.between(ExamStartWindow.closesAt(scheduled), now)));
+		}
+
+		return String.format(
+				"Your exam opens in %s, %d minutes ahead of your booked time, and closes %d minutes after it. "
+						+ "Come back then, or reschedule if you want to sit it sooner.",
+				humanize(Duration.between(now, ExamStartWindow.opensAt(scheduled))),
+				ExamStartWindow.GRACE.toMinutes(),
+				ExamStartWindow.GRACE.toMinutes());
+	}
+
+	/**
+	 * A duration as a short phrase.
+	 *
+	 * <p>The messages talk in elapsed time rather than naming the hour because
+	 * the server holds an {@link Instant} and no timezone for the candidate;
+	 * rendering one as a wall clock would quote a time they do not recognise.
+	 * The client has the window bounds and can show local times properly.</p>
+	 */
+	private static String humanize(Duration duration) {
+		// Rounded up, not truncated. A slot two hours, forty-nine minutes and
+		// fifty-nine seconds away is "2 hours 50 minutes": truncating shaves a
+		// minute off every wait, and told a candidate to come back a minute
+		// before the window would actually let them in. The floor of one minute
+		// keeps a sub-minute gap from reading as no time at all.
+		long minutes = Math.max(1, (duration.toSeconds() + 59) / 60);
+		if (minutes < 60) {
+			return plural(minutes, "minute");
+		}
+
+		long hours = minutes / 60;
+		if (hours < 24) {
+			long remainingMinutes = minutes % 60;
+			return remainingMinutes == 0
+					? plural(hours, "hour")
+					: plural(hours, "hour") + " " + plural(remainingMinutes, "minute");
+		}
+
+		long days = hours / 24;
+		long remainingHours = hours % 24;
+		return remainingHours == 0
+				? plural(days, "day")
+				: plural(days, "day") + " " + plural(remainingHours, "hour");
+	}
+
+	private static String plural(long value, String unit) {
+		return value + " " + unit + (value == 1 ? "" : "s");
 	}
 }

@@ -9,9 +9,9 @@ import static org.mockito.Mockito.when;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -48,8 +48,24 @@ class ProctoringServiceImplTest {
 	@Mock
 	private CertificationApplicationRepository certificationApplicationRepository;
 
-	@InjectMocks
+	/**
+	 * Wired by hand rather than via {@code @InjectMocks}: the invalidation rule was
+	 * extracted into a collaborator that these tests must exercise for real, and
+	 * Mockito does not guarantee that one {@code @InjectMocks} field is constructed
+	 * before another that depends on it.
+	 */
 	private ProctoringServiceImpl proctoringService;
+
+	@BeforeEach
+	void setUp() {
+		ExamInvalidationHandler examInvalidationHandler =
+				new ExamInvalidationHandler(certificationApplicationRepository);
+		proctoringService = new ProctoringServiceImpl(
+				examSessionRepository,
+				videoRecordingRepository,
+				violationRepository,
+				examInvalidationHandler);
+	}
 
 	@Test
 	void reportViolation_thirdViolationInvalidatesSessionAndForcesReapply() {
@@ -90,7 +106,7 @@ class ProctoringServiceImplTest {
 		assertThat(session.getViolationCount()).isEqualTo(3);
 		assertThat(session.getSessionStatus()).isEqualTo(ExamStatus.INVALIDATED);
 		assertThat(session.getSessionEndTime()).isNotNull();
-		assertThat(application.getApplicationStatus()).isEqualTo(CertificationApplicationStatus.FAILED);
+		assertThat(application.getApplicationStatus()).isEqualTo(CertificationApplicationStatus.TERMINATED);
 		assertThat(application.getRemarks()).contains("Re-apply and complete payment");
 
 		verify(certificationApplicationRepository).save(application);

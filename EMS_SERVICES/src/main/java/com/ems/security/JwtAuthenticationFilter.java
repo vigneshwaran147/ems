@@ -32,6 +32,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.userDetailsService = userDetailsService;
     }
 
+    /**
+     * Re-authenticates on ASYNC dispatches as well as the initial request.
+     *
+     * <p>{@code OncePerRequestFilter} skips ASYNC dispatches by default, which is
+     * safe only while every endpoint is synchronous. It is not: a controller that
+     * returns a {@code CompletableFuture} (see {@code ProctorViolationController})
+     * releases the request thread, and Spring Security clears the
+     * {@code SecurityContextHolder} as that first dispatch unwinds. When the future
+     * completes, the container re-enters the filter chain on an ASYNC dispatch —
+     * where Spring Security 6's {@code AuthorizationFilter} re-evaluates
+     * {@code anyRequest().authenticated()} by default, but this filter, having
+     * opted out, never restores the authentication it found a moment ago.</p>
+     *
+     * <p>The result is a request whose handler ran to completion and whose side
+     * effects were committed, answered with 401 "Full authentication is required to
+     * access this resource". Returning false here re-reads the same Bearer token on
+     * the async dispatch and repopulates the context, so authorization sees the
+     * caller it saw the first time.</p>
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {

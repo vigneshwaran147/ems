@@ -16,4 +16,13 @@ public interface PaymentService {
     PaymentResponse refundPayment(String transactionId, PaymentRefundRequest request);
 
     List<PaymentResponse> getPaymentHistory(String email);
+
+    /**
+     * Renders the caller's own receipt for {@code transactionId}.
+     *
+     * <p>Scoped to the authenticated payer: a transaction id belonging to
+     * someone else reads as not found rather than as a permission error, so the
+     * endpoint cannot be used to probe which ids exist.
+     */
+    PaymentReceiptContent downloadReceipt(String email, String transactionId);
 }

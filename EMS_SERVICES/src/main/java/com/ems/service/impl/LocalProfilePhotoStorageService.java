@@ -111,7 +111,9 @@ public class LocalProfilePhotoStorageService implements ProfilePhotoStorageServi
 
 	@Override
 	public String resolveAccessUrl(String storageKey) {
-		return storageKey == null ? null : "/api/users/profile/photo";
+		// Must match UserProfileController's mapping; /api/users/profile/photo
+		// was never served and resolved to a dead link on every profile read.
+		return storageKey == null ? null : "/api/users/me/photo";
 	}
 
 	private ParsedProfilePhoto parseAndValidate(String rawProfilePhoto) {

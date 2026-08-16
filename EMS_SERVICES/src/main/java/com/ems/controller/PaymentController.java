@@ -3,6 +3,8 @@ package com.ems.controller;
 import java.util.List;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -20,6 +22,7 @@ import com.ems.dto.request.PaymentVerificationRequest;
 import com.ems.dto.response.ApiResponse;
 import com.ems.dto.response.PaymentResponse;
 import com.ems.exception.UnauthorizedException;
+import com.ems.service.PaymentReceiptContent;
 import com.ems.service.PaymentService;
 import com.ems.util.CorrelationIdUtil;
 
@@ -73,6 +76,19 @@ public class PaymentController {
         List<PaymentResponse> response = paymentService.getPaymentHistory(email);
         return ResponseEntity.ok(ApiResponse.success(
                 "Payment history fetched successfully", response, CorrelationIdUtil.getOrCreateTraceId()));
+    }
+
+    @GetMapping("/{transactionId}/receipt")
+    public ResponseEntity<Resource> downloadReceipt(
+            Authentication authentication,
+            @PathVariable String transactionId) {
+        String email = requireUser(authentication);
+        PaymentReceiptContent content = paymentService.downloadReceipt(email, transactionId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, content.contentType())
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + content.fileName() + "\"")
+                .body(content.resource());
     }
 
     private String requireUser(Authentication authentication) {

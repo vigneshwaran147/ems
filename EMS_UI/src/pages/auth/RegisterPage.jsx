@@ -1,13 +1,16 @@
 // ems_frontend/src/pages/auth/RegisterPage.jsx
 import { useNavigate, Link } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
-import { TextField, Button, Box, Typography, Alert, CircularProgress, Grid, MenuItem, Stack } from '@mui/material'
+import { Button, Box, Typography, Alert, CircularProgress, Grid } from '@mui/material'
 import { useForm } from 'react-hook-form'
 import { yupResolver } from '@hookform/resolvers/yup'
 import * as yup from 'yup'
 import { registerStart, registerSuccess, registerFailure } from '../../store/slices/authSlice'
 import { authAPI } from '../../api/authAPI'
+import { getApiErrorMessage } from '../../utils/apiError'
 import AuthLayout from '../../components/layout/AuthLayout'
+import PcbField from '../../components/common/PcbField'
+import { tokens, ctaButton } from '../../styles/tokens'
 
 const schema = yup.object().shape({
   userId: yup.string().required('User ID is required').min(4, 'Minimum 4 characters'),
@@ -32,6 +35,13 @@ const schema = yup.object().shape({
   fatherName: yup.string().required("Father's name is required"),
   address: yup.string().required('Address is required')
 })
+
+const SKILL_LEVELS = [
+  { value: '', label: 'Select level' },
+  { value: 'L1', label: 'L1 · Foundation' },
+  { value: 'L2', label: 'L2 · Advanced' },
+  { value: 'L3', label: 'L3 · Master' }
+]
 
 const RegisterPage = () => {
   const navigate = useNavigate()
@@ -61,95 +71,87 @@ const RegisterPage = () => {
       dispatch(registerSuccess())
       navigate('/login')
     } catch (err) {
-      dispatch(registerFailure(err.response?.data?.message || 'Registration failed. Please try again.'))
+      dispatch(registerFailure(getApiErrorMessage(err, 'Registration failed. Please try again.')))
     }
   }
 
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Register to begin your L1 certification journey"
+      subtitle="Register to begin your L1 certification journey."
+      stamp="EMS-ENROL v2.4"
+      wide
     >
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2.5 }}>{error}</Alert>}
 
       <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-        <Grid container spacing={2}>
+        <Grid container columnSpacing={2}>
           <Grid item xs={12}>
-            <TextField fullWidth size="small" label="User ID" {...register('userId')}
-              error={!!errors.userId} helperText={errors.userId?.message} />
+            <PcbField dense label="User ID" placeholder="Choose a unique ID"
+              error={errors.userId?.message} {...register('userId')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="First Name" {...register('firstName')}
-              error={!!errors.firstName} helperText={errors.firstName?.message} />
+            <PcbField dense label="First name" error={errors.firstName?.message} {...register('firstName')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Last Name" {...register('lastName')}
-              error={!!errors.lastName} helperText={errors.lastName?.message} />
+            <PcbField dense label="Last name" error={errors.lastName?.message} {...register('lastName')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Email" type="email" {...register('email')}
-              error={!!errors.email} helperText={errors.email?.message} />
+            <PcbField dense label="Email" type="email" placeholder="you@company.com"
+              error={errors.email?.message} {...register('email')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Mobile Number" {...register('mobileNumber')}
-              error={!!errors.mobileNumber} helperText={errors.mobileNumber?.message} />
+            <PcbField dense label="Mobile number" inputMode="numeric"
+              error={errors.mobileNumber?.message} {...register('mobileNumber')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Password" type="password" {...register('password')}
-              error={!!errors.password} helperText={errors.password?.message} />
+            <PcbField dense label="Password" type="password" autoComplete="new-password"
+              error={errors.password?.message} {...register('password')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Confirm Password" type="password" {...register('confirmPassword')}
-              error={!!errors.confirmPassword} helperText={errors.confirmPassword?.message} />
+            <PcbField dense label="Confirm password" type="password" autoComplete="new-password"
+              error={errors.confirmPassword?.message} {...register('confirmPassword')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Years of Experience" type="number" {...register('yearsOfExperience')}
-              error={!!errors.yearsOfExperience} helperText={errors.yearsOfExperience?.message} />
+            <PcbField dense label="Years of experience" type="number"
+              error={errors.yearsOfExperience?.message} {...register('yearsOfExperience')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" select label="Skill Level" defaultValue=""
-              {...register('currentSkillLevel')}
-              error={!!errors.currentSkillLevel} helperText={errors.currentSkillLevel?.message}
-            >
-              <MenuItem value="L1">L1</MenuItem>
-              <MenuItem value="L2">L2</MenuItem>
-              <MenuItem value="L3">L3</MenuItem>
-            </TextField>
+            <PcbField dense label="Skill level" options={SKILL_LEVELS} defaultValue=""
+              error={errors.currentSkillLevel?.message} {...register('currentSkillLevel')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Qualification" {...register('qualification')}
-              error={!!errors.qualification} helperText={errors.qualification?.message} />
+            <PcbField dense label="Qualification" error={errors.qualification?.message} {...register('qualification')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Organization" {...register('currentOrganization')}
-              error={!!errors.currentOrganization} helperText={errors.currentOrganization?.message} />
+            <PcbField dense label="Organization" error={errors.currentOrganization?.message} {...register('currentOrganization')} />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField fullWidth size="small" label="Father's Name" {...register('fatherName')}
-              error={!!errors.fatherName} helperText={errors.fatherName?.message} />
+            <PcbField dense label="Father's name" error={errors.fatherName?.message} {...register('fatherName')} />
           </Grid>
           <Grid item xs={12}>
-            <TextField fullWidth size="small" label="Address" multiline rows={2} {...register('address')}
-              error={!!errors.address} helperText={errors.address?.message} />
+            <PcbField dense multiline rows={2} label="Address" error={errors.address?.message} {...register('address')} />
           </Grid>
         </Grid>
 
-        <Button
-          fullWidth variant="contained" size="large"
-          sx={{ mt: 3, py: 1.3 }} type="submit" disabled={isLoading}
-        >
-          {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Create account'}
+        <Button fullWidth variant="contained" type="submit" disabled={isLoading} sx={{ ...ctaButton, mt: 1.5 }}>
+          {isLoading ? (
+            <>
+              <CircularProgress size={16} sx={{ color: '#062017', mr: 1.25 }} />
+              Enrolling
+            </>
+          ) : (
+            'Create account'
+          )}
         </Button>
       </Box>
 
-      <Stack direction="row" spacing={0.5} justifyContent="center" sx={{ mt: 3 }}>
-        <Typography variant="body2" color="text.secondary">
-          Already have an account?
-        </Typography>
-        <Link to="/login" style={{ textDecoration: 'none', color: '#4f46e5', fontWeight: 700 }}>
+      <Typography sx={{ textAlign: 'center', fontSize: 14, color: tokens.body, mt: 3 }}>
+        Already have an account?{' '}
+        <Link to="/login" style={{ fontWeight: 700, color: tokens.copperLt, textDecoration: 'none' }}>
           Sign in
         </Link>
-      </Stack>
+      </Typography>
     </AuthLayout>
   )
 }

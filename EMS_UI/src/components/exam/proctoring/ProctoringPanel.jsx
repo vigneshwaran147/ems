@@ -11,6 +11,7 @@ import { useMemo } from 'react'
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import ProctoringCameraPreview from './ProctoringCameraPreview'
 import ProctoringViolationTimeline from './ProctoringViolationTimeline'
+import { tokens, fonts } from '../../../styles/tokens'
 
 const ProctoringPanel = ({
   status,
@@ -39,10 +40,18 @@ const ProctoringPanel = ({
         </Typography>
         <Chip
           size="small"
-          icon={<FiberManualRecordIcon sx={{ color: '#e53935 !important', fontSize: 11 }} />}
+          icon={<FiberManualRecordIcon sx={{ color: `${tokens.danger} !important`, fontSize: 11 }} />}
           label="REC"
           variant="outlined"
-          sx={{ fontWeight: 700, letterSpacing: 0.1, height: 20 }}
+          sx={{
+            fontFamily: fonts.mono,
+            fontWeight: 500,
+            letterSpacing: 1,
+            height: 20,
+            color: tokens.danger,
+            borderColor: 'rgba(248,113,113,.34)',
+            background: 'rgba(190,40,40,.12)',
+          }}
         />
       </Stack>
 

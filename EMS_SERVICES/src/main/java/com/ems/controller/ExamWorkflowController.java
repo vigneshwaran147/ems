@@ -14,12 +14,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.ems.dto.request.ExamProgressSaveRequest;
 import com.ems.dto.request.ExamStartRequest;
 import com.ems.dto.request.ExamWorkflowApplicationRequest;
 import com.ems.dto.request.PaymentCompletionRequest;
 import com.ems.dto.request.PaymentInitiationRequest;
 import com.ems.dto.request.WorkflowExamScheduleRequest;
 import com.ems.dto.response.ApiResponse;
+import com.ems.dto.response.ExamProgressResponse;
 import com.ems.dto.response.ExamSessionQuestionResponse;
 import com.ems.dto.response.ExamStartResponse;
 import com.ems.dto.response.ExamWorkflowApplicationResponse;
@@ -140,6 +142,40 @@ public class ExamWorkflowController {
         String email = requireUser(authentication);
         return ok("Question fetched successfully",
                 examWorkflowService.getSessionQuestion(email, sessionToken, questionNumber));
+    }
+
+    /**
+     * Autosaves the candidate's answers mid-attempt.
+     *
+     * <p>Called on a timer and whenever the candidate moves between questions,
+     * so that an attempt cut short by a dropped connection, a flat battery or a
+     * closed laptop can be rejoined with its answers intact. Idempotent: the
+     * whole draft is sent each time, and the newest write wins.</p>
+     */
+    @PostMapping("/sessions/{sessionToken}/progress")
+    @Operation(
+            summary = "Autosave answers for an active exam session",
+            description = "Stores the candidate's answers so far so an interrupted attempt can be resumed "
+                    + "without losing work. Send the complete answer set on every call.")
+    public ResponseEntity<ApiResponse<ExamProgressResponse>> saveProgress(
+            Authentication authentication,
+            @PathVariable UUID sessionToken,
+            @Valid @RequestBody ExamProgressSaveRequest request) {
+        String email = requireUser(authentication);
+        return ok("Exam progress saved successfully",
+                examWorkflowService.saveProgress(email, sessionToken, request));
+    }
+
+    @GetMapping("/sessions/{sessionToken}/progress")
+    @Operation(
+            summary = "Get the last autosaved answers for an exam session",
+            description = "Returns the stored draft and the time left in the attempt.")
+    public ResponseEntity<ApiResponse<ExamProgressResponse>> getProgress(
+            Authentication authentication,
+            @PathVariable UUID sessionToken) {
+        String email = requireUser(authentication);
+        return ok("Exam progress fetched successfully",
+                examWorkflowService.getProgress(email, sessionToken));
     }
 
     @PostMapping("/applications/{applicationId}/re-apply")

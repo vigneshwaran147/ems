@@ -1,6 +1,6 @@
 // ems_frontend/src/store/store.js
 import { configureStore, combineReducers } from '@reduxjs/toolkit'
-import { persistStore, persistReducer } from 'redux-persist'
+import { persistStore, persistReducer, createTransform } from 'redux-persist'
 import storage from 'redux-persist/lib/storage'
 import authReducer from './slices/authSlice'
 import userReducer from './slices/userSlice'
@@ -24,10 +24,36 @@ const rootReducer = combineReducers({
   admin: adminReducer
 })
 
+/**
+ * Strips transient request-lifecycle flags before they reach localStorage.
+ *
+ * `isLoading` / `error` / `success` are true only for the lifetime of an
+ * in-flight request. If the request never settles — e.g. the network drops
+ * before it errors — and the persisted slice still has `isLoading: true` on
+ * disk, a page refresh rehydrates that stale `true` with no request left to
+ * ever flip it back. A submit button bound to it (see LoginPage) then stays
+ * disabled/spinning forever, until the user manually clears storage.
+ *
+ * `inbound` runs on the way INTO storage: dropping the keys here means they
+ * are simply absent from what's written. On rehydration redux-persist merges
+ * the persisted object over the slice's initialState (autoMergeLevel1), so a
+ * missing key leaves the freshly-booted `false` / `null` untouched instead of
+ * being overwritten by a stale value.
+ */
+const stripTransientRequestState = createTransform(
+  (inboundState) => {
+    const { isLoading, error, success, ...persisted } = inboundState || {}
+    return persisted
+  },
+  (outboundState) => outboundState,
+  { whitelist: ['auth', 'user'] }
+)
+
 const persistConfig = {
   key: 'root',
   storage,
-  whitelist: ['auth', 'user']
+  whitelist: ['auth', 'user'],
+  transforms: [stripTransientRequestState]
 }
 
 const persistedReducer = persistReducer(persistConfig, rootReducer)

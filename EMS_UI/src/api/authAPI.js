@@ -28,7 +28,11 @@ export const authAPI = {
 
 	login: (email, password) => apiClient.post('/auth/login', { email, password }),
 
-	logout: () => apiClient.post('/auth/logout', {}),
+	// The refresh token is the body the backend validates (@NotBlank) and hashes
+	// to find the row to revoke. Posting an empty object — as this did — is
+	// rejected at validation, so the token stayed live server-side until it
+	// aged out on its own.
+	logout: (refreshToken) => apiClient.post('/auth/logout', { refreshToken }),
 
 	refreshToken: (refreshToken) => apiClient.post('/auth/refresh-token', { refreshToken }),
 

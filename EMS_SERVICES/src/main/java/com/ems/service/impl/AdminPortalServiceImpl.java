@@ -1,5 +1,6 @@
 package com.ems.service.impl;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -17,6 +18,7 @@ import com.ems.dto.response.CertificationApplicationResponse;
 import com.ems.dto.response.CertificationSummaryResponse;
 import com.ems.dto.response.QuestionResponse;
 import com.ems.dto.response.VideoRecordingResponse;
+import com.ems.entity.Certificate;
 import com.ems.entity.CertificationApplication;
 import com.ems.entity.Exam;
 import com.ems.entity.ExamSession;
@@ -39,6 +41,7 @@ import com.ems.repository.VideoRecordingRepository;
 import com.ems.repository.ViolationRepository;
 import com.ems.service.AdminPortalService;
 import com.ems.service.CertificateService;
+import com.ems.service.CertificateTemplate;
 import com.ems.service.QuestionService;
 
 import lombok.RequiredArgsConstructor;
@@ -146,16 +149,33 @@ public class AdminPortalServiceImpl implements AdminPortalService {
 	@Override
 	public List<CertificateResponse> getAllCertificates() {
 		return certificateRepository.findAll().stream()
-				.map(certification -> new CertificateResponse(
-						certification.getCertificateNumber(),
-						certification.getExamAttempt().getExamSession().getUser().getFirstName() + " " + certification.getExamAttempt().getExamSession().getUser().getLastName(),
-						certification.getCertification().getUser().getUserId(),
-						certification.getCertification().getCertificationLevel(),
-						certification.getIssueDate(),
-						certification.getExpiryDate(),
-                        certification.getVerificationUrl(),
-						"/api/certificates/" + certification.getCertificateNumber() + "/download/admin"))
+				.map(this::toAdminCertificateResponse)
 				.toList();
+	}
+
+	private CertificateResponse toAdminCertificateResponse(Certificate certificate) {
+		// Descriptive copy comes from the level template, exactly as it does for
+		// the candidate-facing endpoint, so both views name a certificate the
+		// same way the issued PDF does.
+		CertificateTemplate template = CertificateTemplate
+				.forLevel(certificate.getCertification().getCertificationLevel());
+		User user = certificate.getExamAttempt().getExamSession().getUser();
+		return new CertificateResponse(
+				certificate.getCertificateNumber(),
+				user.getFirstName() + " " + user.getLastName(),
+				certificate.getCertification().getUser().getUserId(),
+				certificate.getCertification().getCertificationLevel(),
+				certificate.getIssueDate(),
+				certificate.getExpiryDate(),
+				certificate.getVerificationUrl(),
+				"/api/certificates/" + certificate.getCertificateNumber() + "/download/admin",
+				template.awardTitle(),
+				template.eyebrow(),
+				template.tierLine(),
+				template.citationText(),
+				template.competencies(),
+				template.levelIndex(),
+				CertificateTemplate.TOTAL_LEVELS);
 	}
 
 	@Override
@@ -253,14 +273,10 @@ public class AdminPortalServiceImpl implements AdminPortalService {
 				.findTopByUserAndExamAndApplicationStatusInOrderByAppliedOnDescIdDesc(
 						user,
 						exam,
-						List.of(
-								CertificationApplicationStatus.IN_PROGRESS,
-								CertificationApplicationStatus.PASSED,
-								CertificationApplicationStatus.FAILED,
-								CertificationApplicationStatus.ELIGIBLE,
-								CertificationApplicationStatus.APPLIED,
-								CertificationApplicationStatus.REJECTED,
-								CertificationApplicationStatus.EXPIRED))
+						// Every status, so the invigilator sees the application behind a
+						// violation whatever became of it. Spelled as allOf rather than a
+						// hand-written list, which had already fallen a status behind.
+						EnumSet.allOf(CertificationApplicationStatus.class))
 				.orElse(null);
 
 		String message = switch (violation.getActionTaken()) {

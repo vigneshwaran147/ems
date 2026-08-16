@@ -11,7 +11,9 @@ import java.util.stream.Collectors;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,9 @@ import com.ems.exception.ResourceNotFoundException;
 import com.ems.repository.CertificationApplicationRepository;
 import com.ems.repository.PaymentRepository;
 import com.ems.repository.UserRepository;
+import com.ems.service.PaymentReceiptContent;
+import com.ems.service.PaymentReceiptPdfGeneratorService;
+import com.ems.service.PaymentReceiptPdfGeneratorService.PaymentReceiptData;
 import com.ems.service.PaymentService;
 import com.ems.service.payment.PaymentProviderResult;
 import com.ems.service.payment.PaymentProviderStrategy;
@@ -50,16 +55,19 @@ public class PaymentServiceImpl implements PaymentService {
 	private final PaymentRepository paymentRepository;
 	private final CertificationApplicationRepository certificationApplicationRepository;
 	private final UserRepository userRepository;
+	private final PaymentReceiptPdfGeneratorService receiptPdfGeneratorService;
 	private final Map<PaymentProvider, PaymentProviderStrategy> providerStrategies;
 
 	public PaymentServiceImpl(
 			PaymentRepository paymentRepository,
 			CertificationApplicationRepository certificationApplicationRepository,
 			UserRepository userRepository,
+			PaymentReceiptPdfGeneratorService receiptPdfGeneratorService,
 			List<PaymentProviderStrategy> providerStrategies) {
 		this.paymentRepository = paymentRepository;
 		this.certificationApplicationRepository = certificationApplicationRepository;
 		this.userRepository = userRepository;
+		this.receiptPdfGeneratorService = receiptPdfGeneratorService;
 		this.providerStrategies = providerStrategies.stream()
 				.collect(Collectors.toMap(PaymentProviderStrategy::provider, Function.identity()));
 	}
@@ -171,6 +179,38 @@ public class PaymentServiceImpl implements PaymentService {
 				.toList();
 	}
 
+	@Override
+	@Transactional(readOnly = true)
+	public PaymentReceiptContent downloadReceipt(String email, String transactionId) {
+		User user = findUser(email);
+		Payment payment = paymentRepository.findByTransactionIdAndUser(transactionId, user)
+				.orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
+
+		// A pending payment has not settled, so there is nothing to receipt yet.
+		if (payment.getPaymentStatus() == PaymentStatus.PENDING) {
+			throw new BusinessException("Receipt is available once the payment has been processed",
+					HttpStatus.CONFLICT);
+		}
+
+		byte[] pdf = receiptPdfGeneratorService.generateReceiptPdf(new PaymentReceiptData(
+				payment.getTransactionId(),
+				(user.getFirstName() + " " + user.getLastName()).trim(),
+				user.getUserId(),
+				user.getEmail(),
+				describe(payment),
+				payment.getAmount(),
+				payment.getCurrency(),
+				payment.getProvider(),
+				payment.getProviderReference(),
+				payment.getPaymentStatus(),
+				payment.getPaymentDate()));
+
+		return new PaymentReceiptContent(
+				new ByteArrayResource(pdf),
+				MediaType.APPLICATION_PDF_VALUE,
+				"receipt-" + payment.getTransactionId() + ".pdf");
+	}
+
 	private PaymentProviderStrategy strategy(PaymentProvider provider) {
 		PaymentProviderStrategy strategy = providerStrategies.get(provider);
 		if (strategy == null) {
@@ -217,12 +257,35 @@ public class PaymentServiceImpl implements PaymentService {
 				.orElseThrow(() -> new ResourceNotFoundException("Exam application not found"));
 	}
 
+	/**
+	 * The line-item wording for a payment.
+	 *
+	 * <p>Built from the persisted application and exam rather than stored per
+	 * row, so historical payments re-read with today's phrasing and no caller
+	 * can influence what a receipt claims was purchased.
+	 */
+	private String describe(Payment payment) {
+		CertificationApplication application = payment.getCertificationApplication();
+		CertificationLevel level = application != null
+				? application.getCertificationLevel()
+				: payment.getExam().getCertificationLevel();
+
+		String subject = level == null
+				? payment.getExam().getExamName()
+				: "Level " + level.name().substring(1) + " certification";
+
+		return application == null
+				? subject + " exam fee"
+				: subject + " exam application fee";
+	}
+
 	private PaymentResponse toResponse(Payment payment, String redirectUrl, String qrCodePayload) {
 		return new PaymentResponse(
 				payment.getId(),
 				payment.getTransactionId(),
 				payment.getCertificationApplication() == null ? null : payment.getCertificationApplication().getId(),
 				payment.getExam().getId(),
+				describe(payment),
 				payment.getAmount(),
 				payment.getCurrency(),
 				payment.getProvider(),

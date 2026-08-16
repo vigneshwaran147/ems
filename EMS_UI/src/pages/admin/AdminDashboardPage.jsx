@@ -56,12 +56,12 @@ const AdminDashboardPage = () => {
   }, [])
 
   const cards = [
-    { title: 'Total Users', value: stats?.users ?? 0, icon: <PeopleIcon />, gradient: 'linear-gradient(135deg, #4f46e5, #6366f1)' },
-    { title: 'Exams', value: stats?.exams ?? 0, icon: <QuizIcon />, gradient: 'linear-gradient(135deg, #0ea5e9, #38bdf8)' },
-    { title: 'Questions', value: stats?.questions ?? 0, icon: <HelpCenterIcon />, gradient: 'linear-gradient(135deg, #8b5cf6, #a78bfa)' },
-    { title: 'Certificates', value: stats?.certificates ?? 0, icon: <WorkspacePremiumIcon />, gradient: 'linear-gradient(135deg, #16a34a, #22c55e)' },
-    { title: 'Violations', value: stats?.violations ?? 0, icon: <ReportProblemIcon />, gradient: 'linear-gradient(135deg, #ef4444, #f87171)' },
-    { title: 'Revenue', value: `₹${(stats?.revenue ?? 0).toLocaleString()}`, icon: <PaidIcon />, gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)' }
+    { title: 'Total Users', value: stats?.users ?? 0, icon: <PeopleIcon />, tone: 'copper' },
+    { title: 'Exams', value: stats?.exams ?? 0, icon: <QuizIcon />, tone: 'info' },
+    { title: 'Questions', value: stats?.questions ?? 0, icon: <HelpCenterIcon />, tone: 'neutral' },
+    { title: 'Certificates', value: stats?.certificates ?? 0, icon: <WorkspacePremiumIcon />, tone: 'green' },
+    { title: 'Violations', value: stats?.violations ?? 0, icon: <ReportProblemIcon />, tone: 'danger' },
+    { title: 'Revenue', value: `₹${(stats?.revenue ?? 0).toLocaleString()}`, icon: <PaidIcon />, tone: 'copper' }
   ]
 
   return (

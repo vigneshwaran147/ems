@@ -41,6 +41,12 @@ const userSlice = createSlice({
       state.error = action.payload
       state.success = false
     },
+    // The photo saves on its own rather than with the form, so it refreshes the
+    // cached profile without raising the form's success banner.
+    profilePhotoUpdated: (state, action) => {
+      state.profile = action.payload
+      state.error = null
+    },
     clearUserError: (state) => {
       state.error = null
     },
@@ -57,6 +63,7 @@ export const {
   updateProfileStart,
   updateProfileSuccess,
   updateProfileFailure,
+  profilePhotoUpdated,
   clearUserError,
   clearSuccess
 } = userSlice.actions

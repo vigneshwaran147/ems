@@ -3,11 +3,13 @@ package com.ems.service;
 import java.util.List;
 import java.util.UUID;
 
+import com.ems.dto.request.ExamProgressSaveRequest;
 import com.ems.dto.request.ExamStartRequest;
 import com.ems.dto.request.ExamWorkflowApplicationRequest;
 import com.ems.dto.request.PaymentCompletionRequest;
 import com.ems.dto.request.PaymentInitiationRequest;
 import com.ems.dto.request.WorkflowExamScheduleRequest;
+import com.ems.dto.response.ExamProgressResponse;
 import com.ems.dto.response.ExamSessionQuestionResponse;
 import com.ems.dto.response.ExamStartResponse;
 import com.ems.dto.response.ExamWorkflowApplicationResponse;
@@ -40,4 +42,13 @@ public interface ExamWorkflowService {
 
     /** Re-applies for the same certification level and exam as a previously FAILED or INVALIDATED application. */
     ExamWorkflowApplicationResponse reApply(String email, Long failedApplicationId);
+
+    /**
+     * Records the candidate's answers so far against a running session, so an
+     * interrupted attempt can be resumed with its work intact.
+     */
+    ExamProgressResponse saveProgress(String email, UUID sessionToken, ExamProgressSaveRequest request);
+
+    /** The draft last saved for a running session, for a client that reconnects. */
+    ExamProgressResponse getProgress(String email, UUID sessionToken);
 }

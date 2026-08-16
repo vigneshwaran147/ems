@@ -5,9 +5,11 @@ import { useNavigate } from 'react-router-dom'
 import { userAPI } from '../../api/userAPI'
 import PageHeader from '../../components/common/PageHeader'
 import StatusChip from '../../components/common/StatusChip'
+import SyllabusDialog from '../../components/syllabus/SyllabusDialog'
 import SchoolIcon from '@mui/icons-material/SchoolRounded'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleRounded'
 import LockIcon from '@mui/icons-material/LockRounded'
+import MenuBookIcon from '@mui/icons-material/MenuBookRounded'
 
 const CERT_LEVELS = [
   {
@@ -53,6 +55,7 @@ const CertificationJourneyPage = () => {
   const [activeCerts, setActiveCerts] = useState([])
   const [allCerts, setAllCerts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [syllabusLevel, setSyllabusLevel] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -175,13 +178,26 @@ const CertificationJourneyPage = () => {
                     </Stack>
                   </CardContent>
                   <CardActions sx={{ p: 2, pt: 0 }}>
-                    <Button
-                      variant={isActive || canRenew ? 'outlined' : 'contained'}
-                      fullWidth disabled={ctaDisabled}
-                      onClick={() => navigate('/exams', { state: { level: cert.level } })}
-                    >
-                      {ctaLabel}
-                    </Button>
+                    <Stack spacing={1} sx={{ width: '100%' }}>
+                      <Button
+                        variant={isActive || canRenew ? 'outlined' : 'contained'}
+                        fullWidth disabled={ctaDisabled}
+                        onClick={() => navigate('/exams', { state: { level: cert.level } })}
+                      >
+                        {ctaLabel}
+                      </Button>
+                      {/* Available even when the level is locked — knowing what
+                          is ahead is part of planning the journey. */}
+                      <Button
+                        variant="text"
+                        size="small"
+                        fullWidth
+                        startIcon={<MenuBookIcon />}
+                        onClick={() => setSyllabusLevel(cert.level)}
+                      >
+                        View syllabus
+                      </Button>
+                    </Stack>
                   </CardActions>
                 </Card>
               )}
@@ -189,6 +205,12 @@ const CertificationJourneyPage = () => {
           )
         })}
       </Grid>
+
+      <SyllabusDialog
+        open={Boolean(syllabusLevel)}
+        level={syllabusLevel}
+        onClose={() => setSyllabusLevel(null)}
+      />
     </Box>
   )
 }

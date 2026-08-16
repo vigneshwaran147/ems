@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import javax.imageio.ImageIO;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.annotation.CacheEvict;
@@ -46,6 +47,7 @@ import com.ems.repository.UserRepository;
 import com.ems.service.CertificateFileContent;
 import com.ems.service.CertificatePdfGeneratorService;
 import com.ems.service.CertificateService;
+import com.ems.service.CertificateTemplate;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.WriterException;
@@ -200,18 +202,85 @@ public class CertificateServiceImpl implements CertificateService {
 		return loadCertificateFile(certificate);
 	}
 
+	/**
+	 * Streams the stored PDF, re-rendering it first if the file cannot be served
+	 * as it stands.
+	 *
+	 * <p>The certificate row in the database is the record of issue; the file on
+	 * disk is only a cache of it. A wiped volume, a restored backup or a moved
+	 * storage directory used to turn every download into a 404 that had to be
+	 * cleared by hand, so an unusable file is rebuilt from the persisted record
+	 * instead. Every field still comes from the database, so a regenerated PDF
+	 * carries exactly the same award as the one it replaces.
+	 */
 	private CertificateFileContent loadCertificateFile(Certificate certificate) {
 		try {
 			Path path = Paths.get(certificateStorageDirectory).toAbsolutePath().normalize()
 					.resolve(certificate.getCertificateUrl()).normalize();
 			Resource resource = new UrlResource(path.toUri());
-			if (!resource.exists()) {
-				throw new ResourceNotFoundException("Certificate file not found");
+
+			if (isStale(path)) {
+				log.warn("Stored certificate file unusable or outdated, regenerating: certificateNumber={}, path={}",
+						certificate.getCertificateNumber(), path);
+				renderAndStore(certificate);
+				resource = new UrlResource(path.toUri());
+				if (!resource.exists()) {
+					throw new ResourceNotFoundException("Certificate file not found");
+				}
 			}
+
 			return new CertificateFileContent(resource, "application/pdf", certificate.getCertificateNumber() + ".pdf");
 		} catch (IOException ex) {
 			throw new BusinessException("Failed to load certificate file", HttpStatus.INTERNAL_SERVER_ERROR);
 		}
+	}
+
+	/**
+	 * Whether the stored file has to be rendered again before it can be served.
+	 *
+	 * <p>Existence alone is not enough to trust a cached file. An interrupted
+	 * write leaves a zero-byte or truncated PDF that opens to nothing, and a file
+	 * written before an artwork change still carries the previous design — both
+	 * download without error, which is worse than failing outright. Anything that
+	 * cannot be opened and matched against the current
+	 * {@link CertificatePdfGeneratorService#DESIGN_VERSION} is treated as stale
+	 * and rebuilt, since re-rendering costs a few milliseconds and every field
+	 * comes from the database anyway.
+	 */
+	private boolean isStale(Path path) {
+		if (!Files.exists(path)) {
+			return true;
+		}
+		try {
+			if (Files.size(path) == 0) {
+				return true;
+			}
+			try (PDDocument document = PDDocument.load(path.toFile())) {
+				String storedVersion = document.getDocumentInformation()
+						.getCustomMetadataValue(CertificatePdfGeneratorService.DESIGN_VERSION_KEY);
+				return !CertificatePdfGeneratorService.DESIGN_VERSION.equals(storedVersion);
+			}
+		} catch (IOException | RuntimeException ex) {
+			log.warn("Stored certificate file could not be inspected, treating as stale: path={}, reason={}",
+					path, ex.getMessage());
+			return true;
+		}
+	}
+
+	/** Renders a certificate from its persisted record and writes it to storage. */
+	private void renderAndStore(Certificate certificate) {
+		byte[] qrCodePng = buildQrCodePng(certificate.getVerificationUrl());
+		byte[] pdfBytes = certificatePdfGeneratorService.generateCertificatePdf(
+				new CertificatePdfGeneratorService.CertificatePdfData(
+						certificate.getCertificateNumber(),
+						candidateName(certificate.getExamAttempt().getExamSession()),
+						certificate.getCertification().getUser().getUserId(),
+						certificate.getCertification().getCertificationLevel(),
+						certificate.getIssueDate(),
+						certificate.getExpiryDate(),
+						certificate.getVerificationUrl(),
+						qrCodePng));
+		storePdf(certificate.getCertificateNumber(), pdfBytes);
 	}
 
 	private Certification getOrCreateCertification(ExamAttempt attempt) {
@@ -287,6 +356,8 @@ public class CertificateServiceImpl implements CertificateService {
 	}
 
 	private CertificateResponse toResponse(Certificate certificate) {
+		CertificateTemplate template = CertificateTemplate
+				.forLevel(certificate.getCertification().getCertificationLevel());
 		return new CertificateResponse(
 				certificate.getCertificateNumber(),
 				candidateName(certificate.getExamAttempt().getExamSession()),
@@ -295,7 +366,14 @@ public class CertificateServiceImpl implements CertificateService {
 				certificate.getIssueDate(),
 				certificate.getExpiryDate(),
 				certificate.getVerificationUrl(),
-				"/api/certificates/" + certificate.getCertificateNumber() + "/download");
+				"/api/certificates/" + certificate.getCertificateNumber() + "/download",
+				template.awardTitle(),
+				template.eyebrow(),
+				template.tierLine(),
+				template.citationText(),
+				template.competencies(),
+				template.levelIndex(),
+				CertificateTemplate.TOTAL_LEVELS);
 	}
 
 	private String candidateName(ExamSession session) {
@@ -360,23 +438,13 @@ public class CertificateServiceImpl implements CertificateService {
 			try {
 				Path certPath = Paths.get(certificateStorageDirectory).toAbsolutePath().normalize()
 						.resolve(cert.getCertificateUrl()).normalize();
-				if (Files.exists(certPath)) {
+				// Files already carrying the current artwork are left alone; anything
+				// missing, damaged or rendered by an earlier design is rewritten.
+				if (!isStale(certPath)) {
 					continue;
 				}
 
-				byte[] qrCodePng = buildQrCodePng(cert.getVerificationUrl());
-				byte[] pdfBytes = certificatePdfGeneratorService.generateCertificatePdf(
-						new CertificatePdfGeneratorService.CertificatePdfData(
-								cert.getCertificateNumber(),
-								candidateName(cert.getExamAttempt().getExamSession()),
-								cert.getCertification().getUser().getUserId(),
-								cert.getCertification().getCertificationLevel(),
-								cert.getIssueDate(),
-								cert.getExpiryDate(),
-								cert.getVerificationUrl(),
-								qrCodePng));
-
-				storePdf(cert.getCertificateNumber(), pdfBytes);
+				renderAndStore(cert);
 				Map<String, Object> info = new LinkedHashMap<>();
 				info.put("certificateNumber", cert.getCertificateNumber());
 				info.put("status", "regenerated");

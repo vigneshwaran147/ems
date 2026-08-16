@@ -1,37 +1,58 @@
 // ems_frontend/src/components/common/StatusChip.jsx
 import { Chip } from '@mui/material'
+import { fonts, tone as toneMap } from '../../styles/tokens'
 
-// Maps common backend status strings to MUI chip colors.
-const COLOR_MAP = {
-  ACTIVE: 'success',
-  PASSED: 'success',
-  PASS: 'success',
-  SUCCESS: 'success',
-  COMPLETED: 'success',
-  PUBLISHED: 'success',
-  APPROVED: 'success',
-  VALID: 'success',
-  PENDING: 'warning',
+// Maps common backend status strings onto the four system tones.
+const TONE_MAP = {
+  ACTIVE: 'green',
+  PASSED: 'green',
+  PASS: 'green',
+  SUCCESS: 'green',
+  COMPLETED: 'green',
+  PUBLISHED: 'green',
+  APPROVED: 'green',
+  VALID: 'green',
+  PENDING: 'copper',
+  PAYMENT_PENDING: 'copper',
   IN_PROGRESS: 'info',
   SCHEDULED: 'info',
   APPLIED: 'info',
-  PAYMENT_PENDING: 'warning',
-  FAILED: 'error',
-  FAIL: 'error',
-  EXPIRED: 'error',
-  INVALIDATED: 'error',
-  REJECTED: 'error',
-  REFUNDED: 'default',
-  INVALID: 'error',
-  DRAFT: 'default',
+  FAILED: 'danger',
+  FAIL: 'danger',
+  EXPIRED: 'danger',
+  INVALIDATED: 'danger',
+  TERMINATED: 'danger',
+  REJECTED: 'danger',
+  INVALID: 'danger',
+  REFUNDED: 'neutral',
+  DRAFT: 'neutral',
 }
 
-const StatusChip = ({ status, size = 'small', ...rest }) => {
+const StatusChip = ({ status, size = 'small', sx, ...rest }) => {
   if (!status) return null
   const key = String(status).toUpperCase()
-  const color = COLOR_MAP[key] || 'default'
+  const t = toneMap[TONE_MAP[key] || 'neutral']
   const label = String(status).replace(/_/g, ' ')
-  return <Chip label={label} color={color} size={size} variant="outlined" {...rest} />
+
+  return (
+    <Chip
+      label={label}
+      size={size}
+      variant="outlined"
+      sx={{
+        fontFamily: fonts.mono,
+        fontSize: '0.68rem',
+        fontWeight: 500,
+        letterSpacing: '.6px',
+        textTransform: 'uppercase',
+        color: t.fg,
+        background: t.bg,
+        borderColor: t.border,
+        ...sx,
+      }}
+      {...rest}
+    />
+  )
 }
 
 export default StatusChip

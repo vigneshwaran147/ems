@@ -1,16 +1,19 @@
 // ems_frontend/src/pages/auth/ForgotPasswordPage.jsx
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { TextField, Button, Box, Alert, CircularProgress, InputAdornment, Stack } from '@mui/material'
+import { Button, Box, Typography, Alert, CircularProgress } from '@mui/material'
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined'
 import { useForm } from 'react-hook-form'
 import { yupResolver } from '@hookform/resolvers/yup'
 import * as yup from 'yup'
 import { authAPI } from '../../api/authAPI'
+import { getApiErrorMessage } from '../../utils/apiError'
 import AuthLayout from '../../components/layout/AuthLayout'
+import PcbField from '../../components/common/PcbField'
+import { tokens, ctaButton } from '../../styles/tokens'
 
 const schema = yup.object().shape({
-  email: yup.string().email('Invalid email').required('Email is required')
+  email: yup.string().email('Enter a valid email address.').required('Email is required')
 })
 
 const ForgotPasswordPage = () => {
@@ -31,7 +34,7 @@ const ForgotPasswordPage = () => {
       setMessage('If an account exists, a password reset link has been sent to your email.')
       setTimeout(() => navigate('/login'), 3000)
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send reset link')
+      setError(getApiErrorMessage(err, 'Failed to send reset link'))
     } finally {
       setIsLoading(false)
     }
@@ -40,38 +43,40 @@ const ForgotPasswordPage = () => {
   return (
     <AuthLayout
       title="Forgot password?"
-      subtitle="Enter your email and we'll send you a reset link"
+      subtitle="Enter your email and we'll send you a reset link."
+      stamp="EMS-RECOVER v2.4"
     >
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2.5 }}>{error}</Alert>}
+      {message && <Alert severity="success" sx={{ mb: 2.5 }}>{message}</Alert>}
 
       <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-        <TextField
-          fullWidth label="Email address" type="email"
-          margin="normal" {...register('email')} error={!!errors.email}
-          helperText={errors.email?.message}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <EmailOutlinedIcon color="action" />
-              </InputAdornment>
-            )
-          }}
+        <PcbField
+          label="Email address"
+          type="email"
+          autoComplete="email"
+          placeholder="you@company.com"
+          icon={<EmailOutlinedIcon />}
+          error={errors.email?.message}
+          {...register('email')}
         />
 
-        <Button
-          fullWidth variant="contained" size="large"
-          sx={{ mt: 3, py: 1.3 }} type="submit" disabled={isLoading}
-        >
-          {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Send reset link'}
+        <Button fullWidth variant="contained" type="submit" disabled={isLoading} sx={{ ...ctaButton, mt: 1 }}>
+          {isLoading ? (
+            <>
+              <CircularProgress size={16} sx={{ color: '#062017', mr: 1.25 }} />
+              Sending
+            </>
+          ) : (
+            'Send reset link'
+          )}
         </Button>
       </Box>
 
-      <Stack direction="row" justifyContent="center" sx={{ mt: 3 }}>
-        <Link to="/login" style={{ textDecoration: 'none', color: '#4f46e5', fontWeight: 700 }}>
+      <Typography sx={{ textAlign: 'center', fontSize: 14, mt: 3 }}>
+        <Link to="/login" style={{ fontWeight: 700, color: tokens.copperLt, textDecoration: 'none' }}>
           Back to sign in
         </Link>
-      </Stack>
+      </Typography>
     </AuthLayout>
   )
 }

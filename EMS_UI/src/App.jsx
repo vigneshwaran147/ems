@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux'
 import { ThemeProvider, CssBaseline } from '@mui/material'
 import theme from './theme'
 import LayoutWrapper from './components/layout/LayoutWrapper'
+import { ProfilePhotoProvider } from './contexts/ProfilePhotoContext'
 
 // Auth pages
 import LoginPage from './pages/auth/LoginPage'
@@ -45,13 +46,42 @@ function App() {
   const { isAuthenticated, user } = useSelector((state) => state.auth)
   const isAdmin = user?.role === 'ADMIN' || user?.roles?.includes('ADMIN')
 
+  // Where a signed-in visitor belongs. `/` is the public home (the sign-in
+  // screen), so authentication moves the address bar to /dashboard rather than
+  // leaving the app parked on the marketing route.
+  const homePath = isAdmin ? '/admin/dashboard' : '/dashboard'
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router>
+      {/*
+        * Opted in early: the protected-route tree hangs off a `/*` splat, and
+        * v7 changes how relative paths resolve inside one. Safe here because
+        * nothing in the app navigates relatively — every navigate() and Link
+        * target is absolute — so this only silences the deprecation notice
+        * rather than moving any route.
+        */}
+      <Router future={{ v7_relativeSplatPath: true }}>
         <Routes>
+          {/*
+            * Home — the sign-in screen. Signed-out visitors land here; signed-in
+            * ones are forwarded straight to their dashboard.
+            *
+            * Declared as an index route rather than path="/" deliberately: the
+            * protected tree below hangs off a `/*` splat, and a plain path="/"
+            * loses the ranking contest against that splat, which silently
+            * swallows the home screen. An index route outranks it.
+            */}
+          <Route
+            index
+            element={isAuthenticated ? <Navigate to={homePath} replace /> : <LoginPage />}
+          />
+
           {/* Public Auth Routes */}
-          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/login"
+            element={isAuthenticated ? <Navigate to={homePath} replace /> : <LoginPage />}
+          />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
@@ -59,7 +89,7 @@ function App() {
           {/* Exam route - no drawer/layout during exam */}
           <Route
             path="/exam/:applicationId"
-            element={isAuthenticated ? <ExamPage /> : <Navigate to="/login" replace />}
+            element={isAuthenticated ? <ExamPage /> : <Navigate to="/" replace />}
           />
 
           {/* Protected User Routes */}
@@ -67,15 +97,16 @@ function App() {
             path="/*"
             element={
               isAuthenticated ? (
-                <LayoutWrapper />
+                <ProfilePhotoProvider>
+                  <LayoutWrapper />
+                </ProfilePhotoProvider>
               ) : (
-                <Navigate to="/login" replace />
+                <Navigate to="/" replace />
               )
             }
           >
             {isAdmin ? (
               <>
-                <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="admin/dashboard" element={<AdminDashboardPage />} />
                 <Route path="admin/users" element={<AdminUsersPage />} />
@@ -90,7 +121,6 @@ function App() {
               </>
             ) : (
               <>
-                <Route index element={<DashboardPage />} />
                 <Route path="dashboard" element={<DashboardPage />} />
                 <Route path="profile" element={<ProfilePage />} />
                 <Route path="certifications" element={<CertificationJourneyPage />} />
@@ -101,7 +131,7 @@ function App() {
                 <Route path="certificates" element={<CertificatePage />} />
                 <Route path="exam-reports" element={<UserExamReportPageEnhanced />} />
                 <Route path="reports" element={<UserReportPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </>
             )}
           </Route>

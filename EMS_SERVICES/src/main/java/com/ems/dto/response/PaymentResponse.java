@@ -10,6 +10,9 @@ public record PaymentResponse(
         String transactionId,
         Long applicationId,
         Long examId,
+        // What the payer was charged for, composed server-side so every client
+        // renders the same wording on statements and receipts.
+        String description,
         BigDecimal amount,
         String currency,
         String provider,

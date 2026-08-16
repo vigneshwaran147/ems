@@ -54,7 +54,7 @@ public interface CertificationApplicationRepository extends JpaRepository<Certif
     @Query("SELECT ca FROM CertificationApplication ca " +
             "LEFT JOIN FETCH ca.exam " +
             "WHERE ca.user = :user " +
-            "AND ca.applicationStatus IN ('FAILED', 'EXPIRED', 'REJECTED') " +
+            "AND ca.applicationStatus IN ('FAILED', 'TERMINATED', 'EXPIRED', 'REJECTED') " +
             "ORDER BY ca.appliedOn DESC")
     java.util.List<CertificationApplication> findFailedApplicationsForReApply(User user);
 }

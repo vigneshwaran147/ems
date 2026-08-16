@@ -20,7 +20,16 @@ import {
 } from '@mui/material'
 import PageHeader from '../../components/common/PageHeader'
 import EmptyState from '../../components/common/EmptyState'
+import PcbSelect from '../../components/common/PcbSelect'
 import { adminAPI } from '../../api/adminAPI'
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'SUCCESS', label: 'SUCCESS' },
+  { value: 'FAILED', label: 'FAILED' },
+  { value: 'REFUNDED', label: 'REFUNDED' },
+  { value: 'INITIATED', label: 'INITIATED' }
+]
 
 const statusColor = (status) => {
   if (status === 'SUCCESS') return 'success'
@@ -196,21 +205,15 @@ const AdminPaymentsPage = () => {
             />
           </Grid>
           <Grid item xs={12} md={3}>
-            <TextField
+            <PcbSelect
               fullWidth
-              select
-              SelectProps={{ native: true }}
               size="small"
               label="Status"
+              placeholder="All"
+              options={STATUS_OPTIONS}
               value={filters.status}
-              onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-            >
-              <option value="">All</option>
-              <option value="SUCCESS">SUCCESS</option>
-              <option value="FAILED">FAILED</option>
-              <option value="REFUNDED">REFUNDED</option>
-              <option value="INITIATED">INITIATED</option>
-            </TextField>
+              onChange={(value) => setFilters((prev) => ({ ...prev, status: value }))}
+            />
           </Grid>
         </Grid>
       </Paper>

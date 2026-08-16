@@ -69,11 +69,7 @@ public class CertificateController {
             @PathVariable String certificateNumber) {
         String email = requireUser(authentication);
         CertificateFileContent content = certificateService.downloadMyCertificate(email, certificateNumber);
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_TYPE, content.contentType())
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + content.fileName() + "\"")
-                .body(content.resource());
+        return pdfDownload(content);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
@@ -81,10 +77,25 @@ public class CertificateController {
     public ResponseEntity<Resource> downloadCertificateForAdmin(
             @PathVariable String certificateNumber) {
         CertificateFileContent content = certificateService.downloadCertificateForAdmin(certificateNumber);
+        return pdfDownload(content);
+    }
+
+    /**
+     * Sends the certificate as an attachment that is never reused from a cache.
+     *
+     * <p>A certificate is re-rendered whenever the stored file is stale, so the
+     * same URL can legitimately return different bytes than it did last week. A
+     * browser or proxy holding the previous response would hide exactly that
+     * update from the candidate, which is the one thing this endpoint must not
+     * do.
+     */
+    private ResponseEntity<Resource> pdfDownload(CertificateFileContent content) {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, content.contentType())
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + content.fileName() + "\"")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, must-revalidate")
+                .header(HttpHeaders.PRAGMA, "no-cache")
                 .body(content.resource());
     }
 

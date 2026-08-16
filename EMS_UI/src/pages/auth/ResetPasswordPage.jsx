@@ -1,12 +1,16 @@
 // ems_frontend/src/pages/auth/ResetPasswordPage.jsx
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { TextField, Button, Box, Alert, CircularProgress } from '@mui/material'
+import { Button, Box, Alert, CircularProgress } from '@mui/material'
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import { useForm } from 'react-hook-form'
 import { yupResolver } from '@hookform/resolvers/yup'
 import * as yup from 'yup'
 import { authAPI } from '../../api/authAPI'
+import { getApiErrorMessage } from '../../utils/apiError'
 import AuthLayout from '../../components/layout/AuthLayout'
+import PcbField from '../../components/common/PcbField'
+import { ctaButton } from '../../styles/tokens'
 
 const schema = yup.object().shape({
   password: yup.string()
@@ -38,7 +42,7 @@ const ResetPasswordPage = () => {
       setMessage('Password reset successfully. Redirecting to sign in...')
       setTimeout(() => navigate('/login'), 2000)
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reset password')
+      setError(getApiErrorMessage(err, 'Failed to reset password'))
     } finally {
       setIsLoading(false)
     }
@@ -47,27 +51,41 @@ const ResetPasswordPage = () => {
   return (
     <AuthLayout
       title="Reset password"
-      subtitle="Choose a strong new password for your account"
+      subtitle="Choose a strong new password for your account."
+      stamp="EMS-RESET v2.4"
     >
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2.5 }}>{error}</Alert>}
+      {message && <Alert severity="success" sx={{ mb: 2.5 }}>{message}</Alert>}
 
       <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-        <TextField
-          fullWidth label="New Password" type="password"
-          margin="normal" {...register('password')} error={!!errors.password}
-          helperText={errors.password?.message}
+        <PcbField
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          placeholder="At least 12 characters"
+          icon={<LockOutlinedIcon />}
+          error={errors.password?.message}
+          {...register('password')}
         />
-        <TextField
-          fullWidth label="Confirm Password" type="password"
-          margin="normal" {...register('confirmPassword')} error={!!errors.confirmPassword}
-          helperText={errors.confirmPassword?.message}
+        <PcbField
+          label="Confirm password"
+          type="password"
+          autoComplete="new-password"
+          placeholder="Repeat your new password"
+          icon={<LockOutlinedIcon />}
+          error={errors.confirmPassword?.message}
+          {...register('confirmPassword')}
         />
-        <Button
-          fullWidth variant="contained" size="large"
-          sx={{ mt: 3, py: 1.3 }} type="submit" disabled={isLoading}
-        >
-          {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Reset password'}
+
+        <Button fullWidth variant="contained" type="submit" disabled={isLoading} sx={{ ...ctaButton, mt: 1 }}>
+          {isLoading ? (
+            <>
+              <CircularProgress size={16} sx={{ color: '#062017', mr: 1.25 }} />
+              Resetting
+            </>
+          ) : (
+            'Reset password'
+          )}
         </Button>
       </Box>
     </AuthLayout>
