@@ -134,9 +134,10 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(List.of(
                 "http://localhost:*",
                 "http://127.0.0.1:*",
-                "https://ems-silk-six.vercel.app/",
-                "http://[::1]:*"));
-        configuration.setAllowedOrigins(List.of("http://localhost:3000", "https://ems-silk-six.vercel.app/"));
+                "http://[::1]:*",
+                "https://ems-silk-six.vercel.app",
+                "https://certifiedemsengineers.com",
+                "https://www.certifiedemsengineers.com"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("Authorization"));
